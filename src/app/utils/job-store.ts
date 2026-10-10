@@ -1,32 +1,39 @@
 // src/app/utils/job-store.ts
 //
-// Parks the cleaned file in the browser (IndexedDB) while the customer is away on Stripe Checkout, and
-// keeps it there until the customer has been handed the download. The data never leaves the device.
-// IndexedDB is used instead of sessionStorage because supplier files can be tens of megabytes.
+// Parks the uploaded file in the browser (IndexedDB) while the customer is away on Stripe Checkout, and keeps it
+// until they have been handed the download. It stores only what was uploaded (the raw rows), never any cleaned
+// output, and nothing here ever leaves the device. IndexedDB, not sessionStorage, because supplier files can be
+// tens of megabytes.
+//
+// Two stores: "meta" is tiny (which Stripe session, which file, when) so recovery can list parked files without
+// reading megabytes; "jobs" holds the rows themselves and is only read once a payment has been confirmed.
 
-import type { CsvState } from "../types/csv";
+import type { RawSupplierRow } from "../types/csv";
 
 const DB_NAME = "shopify-csv-sanitizer";
-const DB_VERSION = 2;
-const STORE = "jobs";
+// v3 replaced the single v1/v2 "jobs" store (which held cleaned output and had no Stripe session id) with the two
+// stores below. Files parked by those older builds cannot be tied to a payment, so the upgrade drops them.
+const DB_VERSION = 3;
+const JOBS_STORE = "jobs";
+const META_STORE = "meta";
 const SAVED_AT_INDEX = "savedAt";
 
 /**
- * Checkout Sessions expire after 24 hours, so a parked file that is still unpaid after 48 hours will never
- * be unlocked. Recovery deletes such files; paid files are handed back whatever their age.
+ * Checkout Sessions expire after 24 hours, so a parked file that is still unpaid after 48 hours will never be
+ * unlocked. Recovery deletes such files; paid files are handed back whatever their age.
  */
 export const PARKED_MAX_AGE_MS = 48 * 60 * 60 * 1000;
 
-export interface StoredJob {
-  /** usage_telemetry.id, the same id that comes back in the return URL. */
+export interface ParkedJobMeta {
+  /** usage_telemetry.id: the job id that Stripe Checkout and the return URL carry. */
   jobId: string;
-  savedAt: number;
-  state: Pick<CsvState, "rawData" | "cleanedData" | "fileName" | "warnings" | "report">;
-}
-
-/** Everything needed to decide what to do with a parked file, without loading its (large) data. */
-export interface ParkedJob {
-  jobId: string;
+  /** The Stripe Checkout Session this file was parked for. */
+  sessionId: string;
+  /** Fingerprint of the rows (see fingerprintRows). */
+  fingerprint: string | null;
+  fileName: string | null;
+  fileSize: number;
+  warnings: string[];
   savedAt: number;
 }
 
@@ -39,11 +46,10 @@ function openDatabase(): Promise<IDBDatabase> {
     const request = indexedDB.open(DB_NAME, DB_VERSION);
     request.onupgradeneeded = () => {
       const db = request.result;
-      // v1 had the store without the index, so upgrade in place and keep any parked files.
-      const store = db.objectStoreNames.contains(STORE)
-        ? (request.transaction as IDBTransaction).objectStore(STORE)
-        : db.createObjectStore(STORE, { keyPath: "jobId" });
-      if (!store.indexNames.contains(SAVED_AT_INDEX)) store.createIndex(SAVED_AT_INDEX, SAVED_AT_INDEX);
+      if (db.objectStoreNames.contains(JOBS_STORE)) db.deleteObjectStore(JOBS_STORE);
+      db.createObjectStore(JOBS_STORE, { keyPath: "jobId" });
+      if (db.objectStoreNames.contains(META_STORE)) db.deleteObjectStore(META_STORE);
+      db.createObjectStore(META_STORE, { keyPath: "jobId" }).createIndex(SAVED_AT_INDEX, SAVED_AT_INDEX);
     };
     request.onsuccess = () => resolve(request.result);
     request.onerror = () => reject(request.error ?? new Error("Could not open IndexedDB."));
@@ -51,16 +57,17 @@ function openDatabase(): Promise<IDBDatabase> {
   });
 }
 
-/** Runs one transaction and resolves with the request result once it has been committed. */
-async function withStore<T>(
+/** Runs one transaction over the given stores and resolves with its result once it has been committed. */
+async function inTransaction<T>(
+  stores: string[],
   mode: IDBTransactionMode,
-  run: (store: IDBObjectStore) => IDBRequest<T>,
+  run: (open: (name: string) => IDBObjectStore) => IDBRequest<T>,
 ): Promise<T> {
   const db = await openDatabase();
   try {
     return await new Promise<T>((resolve, reject) => {
-      const transaction = db.transaction(STORE, mode);
-      const request = run(transaction.objectStore(STORE));
+      const transaction = db.transaction(stores, mode);
+      const request = run((name) => transaction.objectStore(name));
       transaction.oncomplete = () => resolve(request.result);
       transaction.onerror = () => reject(transaction.error ?? new Error("IndexedDB transaction failed."));
       transaction.onabort = () => reject(transaction.error ?? new Error("IndexedDB transaction aborted."));
@@ -70,38 +77,32 @@ async function withStore<T>(
   }
 }
 
-export async function saveJob(job: StoredJob): Promise<void> {
-  await withStore("readwrite", (store) => store.put(job));
+/** Stores the file and its metadata together, so a file is never listed without its data (or the reverse). */
+export async function parkJob(meta: ParkedJobMeta, rawData: RawSupplierRow[]): Promise<void> {
+  await inTransaction([JOBS_STORE, META_STORE], "readwrite", (open) => {
+    open(JOBS_STORE).put({ jobId: meta.jobId, rawData });
+    return open(META_STORE).put(meta);
+  });
 }
 
-export async function loadJob(jobId: string): Promise<StoredJob | null> {
-  const job = await withStore("readonly", (store) => store.get(jobId) as IDBRequest<StoredJob | undefined>);
-  return job ?? null;
+/** Parked files, oldest first. Reads metadata only. */
+export async function listParkedJobs(): Promise<ParkedJobMeta[]> {
+  const all = await inTransaction([META_STORE], "readonly", (open) => open(META_STORE).getAll() as IDBRequest<ParkedJobMeta[]>);
+  return all.sort((a, b) => a.savedAt - b.savedAt);
 }
 
-export async function deleteJob(jobId: string): Promise<void> {
-  await withStore("readwrite", (store) => store.delete(jobId));
+export async function loadParkedData(jobId: string): Promise<RawSupplierRow[] | null> {
+  const record = await inTransaction(
+    [JOBS_STORE],
+    "readonly",
+    (open) => open(JOBS_STORE).get(jobId) as IDBRequest<{ rawData: RawSupplierRow[] } | undefined>,
+  );
+  return record?.rawData ?? null;
 }
 
-/** Lists parked files, oldest first. Uses a key cursor on the savedAt index, so no file data is read. */
-export async function listParkedJobs(): Promise<ParkedJob[]> {
-  const db = await openDatabase();
-  try {
-    return await new Promise<ParkedJob[]>((resolve, reject) => {
-      const transaction = db.transaction(STORE, "readonly");
-      const parked: ParkedJob[] = [];
-      const cursorRequest = transaction.objectStore(STORE).index(SAVED_AT_INDEX).openKeyCursor();
-      cursorRequest.onsuccess = () => {
-        const cursor = cursorRequest.result;
-        if (!cursor) return;
-        parked.push({ jobId: String(cursor.primaryKey), savedAt: Number(cursor.key) });
-        cursor.continue();
-      };
-      transaction.oncomplete = () => resolve(parked);
-      transaction.onerror = () => reject(transaction.error ?? new Error("IndexedDB transaction failed."));
-      transaction.onabort = () => reject(transaction.error ?? new Error("IndexedDB transaction aborted."));
-    });
-  } finally {
-    db.close();
-  }
+export async function deleteParkedJob(jobId: string): Promise<void> {
+  await inTransaction([JOBS_STORE, META_STORE], "readwrite", (open) => {
+    open(JOBS_STORE).delete(jobId);
+    return open(META_STORE).delete(jobId);
+  });
 }

@@ -6,7 +6,7 @@
 import { useRef, useState } from "react";
 import type { ChangeEvent, DragEvent } from "react";
 import type { RawSupplierRow } from "../types/csv";
-import { parseSupplierFile, parseSupplierText } from "../utils/csv-parser";
+import { type EncodingReport, parseSupplierBytes, parseSupplierText } from "../utils/csv-parser";
 
 /* -------------------------------------------------------------------------- */
 /*  Configuration                                                              */
@@ -103,11 +103,20 @@ function hasAcceptedExtension(fileName: string): boolean {
 /*  Component                                                                  */
 /* -------------------------------------------------------------------------- */
 
+/** The bytes of the file as uploaded and how they were read, kept so the page can re-read them with another encoding. */
+export interface UploadSource {
+  bytes: ArrayBuffer;
+  encoding: EncodingReport;
+}
+
 interface CsvUploaderProps {
   /** Fired as soon as a valid file is accepted, so the page can show its loading state. */
   onFileLoadStart: (fileName: string) => void;
-  /** Fired with the parsed rows (and non-fatal warnings) once parsing succeeded. */
-  onDataParsed: (rows: RawSupplierRow[], fileName: string, warnings: string[]) => void;
+  /**
+   * Fired with the parsed rows (and non-fatal warnings) and the size of the file in bytes once parsing succeeded.
+   * `source` is absent for the built-in sample, which is plain UTF-8 text that never needs another encoding.
+   */
+  onDataParsed: (rows: RawSupplierRow[], fileName: string, warnings: string[], fileSize: number, source?: UploadSource) => void;
   /** Fired with a human-readable message when the file is rejected or unreadable. */
   onError: (message: string) => void;
 }
@@ -136,8 +145,9 @@ export default function CsvUploader({ onFileLoadStart, onDataParsed, onError }: 
 
     onFileLoadStart(file.name);
     try {
-      const { rows, warnings } = await parseSupplierFile(file);
-      onDataParsed(rows, file.name, warnings);
+      const bytes = await file.arrayBuffer();
+      const { rows, warnings, encoding } = parseSupplierBytes(bytes);
+      onDataParsed(rows, file.name, warnings, file.size, { bytes, encoding });
     } catch (error) {
       onError(error instanceof Error ? error.message : "The file could not be read.");
     }
@@ -146,8 +156,9 @@ export default function CsvUploader({ onFileLoadStart, onDataParsed, onError }: 
   const handleSample = () => {
     onFileLoadStart(SAMPLE_FILE_NAME);
     try {
-      const { rows, warnings } = parseSupplierText(buildSampleCsv());
-      onDataParsed(rows, SAMPLE_FILE_NAME, warnings);
+      const sampleCsv = buildSampleCsv();
+      const { rows, warnings } = parseSupplierText(sampleCsv);
+      onDataParsed(rows, SAMPLE_FILE_NAME, warnings, new TextEncoder().encode(sampleCsv).length);
     } catch (error) {
       onError(error instanceof Error ? error.message : "The sample file could not be parsed.");
     }
