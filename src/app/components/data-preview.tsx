@@ -9,7 +9,7 @@ import type {
   RawSupplierRow,
   SanitizeReport,
 } from "../types/csv";
-import { SHOPIFY_COLUMNS, buildPreviewPairs } from "../utils/sanitizer";
+import { buildPreviewPairs, shopifyHeaderOf } from "../utils/sanitizer";
 
 /* -------------------------------------------------------------------------- */
 /*  Constants & small helpers                                                  */
@@ -41,7 +41,24 @@ const TONES: Record<Tone, { box: string; label: string; text: string }> = {
 };
 
 function shopifyHeader(key: keyof CleanedShopifyRow): string {
-  return SHOPIFY_COLUMNS.find((column) => column.key === key)?.header ?? key;
+  return shopifyHeaderOf(key);
+}
+
+/** The catalog columns of a supplier row (vendor, category, stock, EAN) as one line, "name: value", only for the columns the file has. */
+function catalogOf(raw: RawSupplierRow): string[] {
+  const entries: Array<[string, string | undefined]> = [["vendor", raw.vendor], ["category", raw.category], ["stock", raw.stock], ["ean", raw.barcode]];
+  return entries.filter(([, value]) => value !== undefined).map(([name, value]) => `${name}: ${(value as string) === "" ? "(empty)" : value}`);
+}
+
+/** What was written for them: Vendor, Type, Qty and Barcode of the row, only where there is something. */
+function catalogWritten(row: CleanedShopifyRow): string[] {
+  const entries: Array<[string, string]> = [
+    [shopifyHeader("Vendor"), row.Vendor],
+    [shopifyHeader("Type"), row.Type],
+    [shopifyHeader("Variant_Inventory_Qty"), row.Variant_Inventory_Qty],
+    [shopifyHeader("Variant_Barcode"), row.Variant_Barcode],
+  ];
+  return entries.filter(([, value]) => value !== "").map(([name, value]) => `${name}: ${value}`);
 }
 
 /** "size: S", "color: NAVY": the options of a supplier row as they were typed. */
@@ -378,6 +395,22 @@ function ProductComparison({ pair, position, total }: { pair: PreviewPair; posit
             content: <PlainMono value={primary.Variant_SKU} />,
           }}
         />
+
+        {catalogOf(raw).length > 0 && (
+          <FieldRow
+            changed={catalogOf(raw).join(" | ") !== catalogWritten(primary).join(" | ")}
+            before={{
+              label: "vendor / category / stock / ean",
+              note: "as supplied",
+              content: <VisibleWhitespace value={catalogOf(raw).join(" | ")} />,
+            }}
+            after={{
+              label: "Vendor / Type / Inventory Qty / Barcode",
+              note: pair.isVariantRow ? "this variant" : "kept",
+              content: catalogWritten(primary).length > 0 ? <PlainMono value={catalogWritten(primary).join(" | ")} /> : <span className="italic text-neutral-500">nothing usable (see the warnings)</span>,
+            }}
+          />
+        )}
 
         {(optionsOf(raw).length > 0 || optionValues(primary).length > 0) && (
           <FieldRow

@@ -2,27 +2,73 @@
 
 import Papa from "papaparse";
 import type { RawSupplierRow } from "../types/csv";
+import { weightUnitInHeader } from "./catalog-fields";
 import { type DecodedText, ENCODING_LABELS, type SupplierEncoding, decodeText } from "./text-encoding";
 
 /* -------------------------------------------------------------------------- */
 /*  Header mapping                                                             */
 /* -------------------------------------------------------------------------- */
 
-type ColumnKey = Exclude<keyof RawSupplierRow, "options">;
+type ColumnKey = Exclude<keyof RawSupplierRow, "options" | "weightUnit">;
 
 /** With `header: true` PapaParse returns objects; rows wider than the header keep the overflow here. */
 type ParsedRecord = Record<string, string> & { __parsed_extra?: string[] };
 
-/** Header names suppliers commonly use, compared after lower-casing and removing punctuation. */
+/**
+ * Header names suppliers commonly use, compared after lower-casing, removing accents and removing punctuation
+ * ("Název produktu" and "nazev_produktu" are both "nazevproduktu"). English first, then Czech, Slovak, Polish, German,
+ * French and Spanish. When a file has several columns that fit, the one listed first here wins, not the one that
+ * comes first in the file.
+ */
 const HEADER_ALIASES: Record<ColumnKey, string[]> = {
   id: ["id", "productid", "itemid", "supplierid", "supplierproductid", "externalid", "ref", "reference"],
-  title: ["title", "name", "productname", "producttitle", "itemname", "itemtitle", "product"],
-  description: ["description", "desc", "body", "bodyhtml", "longdescription", "productdescription", "details", "html"],
-  images: ["images", "image", "imageurl", "imageurls", "imagesrc", "imagelinks", "photos", "photo", "pictures", "picture", "img", "imgurl", "gallery"],
-  price: ["price", "retailprice", "unitprice", "sellingprice", "saleprice", "variantprice", "msrp", "rrp"],
-  sku: ["sku", "variantsku", "itemcode", "productcode", "partnumber", "partno", "articlenumber", "article", "code"],
+  title: [
+    "title", "name", "productname", "producttitle", "itemname", "itemtitle", "product",
+    "nazev", "nazevproduktu", "nazevzbozi", "produkt", "nazov", "nazovproduktu", "nazwa", "nazwaproduktu", "bezeichnung", "produktname", "artikelname", "nom", "nomduproduit", "nombre", "nombredelproducto",
+  ],
+  description: [
+    "description", "desc", "body", "bodyhtml", "longdescription", "productdescription", "details", "html",
+    "popis", "popisproduktu", "dlouhypopis", "opis", "opisproduktu", "beschreibung", "produktbeschreibung", "descripcion", "descriptif",
+  ],
+  images: [
+    "images", "image", "imageurl", "imageurls", "imagesrc", "imagelinks", "photos", "photo", "pictures", "picture", "img", "imgurl", "gallery",
+    "obrazek", "obrazky", "urlobrazku", "foto", "fotka", "fotografie", "obrazok", "zdjecie", "zdjecia", "obraz", "bild", "bilder", "bildurl", "imagen", "imagenes",
+  ],
+  price: [
+    "price", "retailprice", "unitprice", "sellingprice", "saleprice", "variantprice", "msrp", "rrp",
+    "cena", "prodejnicena", "cenaprodejni", "cenasdph", "preis", "verkaufspreis", "precio", "prix",
+  ],
+  // The first alias that matches wins, so a file with both "SKU" and "Product code" gets its SKU from "SKU".
+  sku: [
+    "sku", "variantsku", "itemcode", "partnumber", "partno", "articlenumber", "article", "code",
+    "katalogovecislo", "cislozbozi", "objednacicislo", "artikelnummer", "artnr",
+    "productcode", "kodproduktu", "kod", "kodzbozi",
+  ],
   handle: ["handle", "slug", "urlhandle", "urlkey"],
+  productCode: ["parentsku", "parentcode", "parentid", "parent", "skuparent", "groupid", "groupcode", "productgroup", "itemgroupid", "itemgroup", "modelcode", "model", "styleid", "stylecode", "variantgroup", "kodskupiny"],
+  vendor: [
+    "vendor", "brand", "manufacturer", "supplier", "vendorname", "brandname",
+    "vyrobce", "znacka", "dodavatel", "vyrobca", "producent", "marka", "hersteller", "marke", "fabricant", "marca", "fabricante",
+  ],
+  category: [
+    "category", "categories", "producttype", "type", "productcategory",
+    "kategorie", "kategoria", "typproduktu", "typ", "categoria", "categorie",
+  ],
+  tags: ["tags", "tag", "keywords", "stitky", "stitek", "klicovaslova", "tagi", "schlagworter", "etiquetas", "etiquettes"],
+  stock: [
+    "stock", "quantity", "qty", "inventory", "inventoryqty", "variantinventoryqty", "stockqty", "onhand", "instock", "available",
+    "skladem", "sklad", "zasoba", "zasoby", "pocetks", "mnozstvi", "skladom", "stanmagazynowy", "stan", "ilosc", "bestand", "lagerbestand", "menge", "existencias", "inventario",
+  ],
+  barcode: ["ean", "ean13", "gtin", "gtin13", "upc", "barcode", "variantbarcode", "carovykod", "kodkreskowy", "strichcode", "codigodebarras", "codebarre"],
+  currency: ["currency", "currencycode", "curr", "mena", "waluta", "wahrung", "waehrung", "devise", "moneda", "valuta"],
+  weight: [
+    "weight", "weightg", "weightkg", "grams", "variantgrams", "shippingweight",
+    "hmotnost", "hmotnostkg", "hmotnostg", "vaha", "waga", "gewicht", "peso", "poids",
+  ],
 };
+
+/** A column named like this is the product code when the file also has a separate SKU column (otherwise it is the SKU). */
+const CODE_LIKE_SKU_HEADERS = new Set(["productcode", "kodproduktu", "kod", "kodzbozi"]);
 
 const COLUMN_KEYS = Object.keys(HEADER_ALIASES) as ColumnKey[];
 
@@ -45,6 +91,8 @@ const optionNameAliases = (n: number): string[] => [`option${n}name`, `optionnam
  */
 const ATTRIBUTE_HEADERS = new Set([
   "size", "sizes", "color", "colour", "material", "style", "pattern", "finish", "scent", "fragrance", "flavor", "flavour", "capacity", "length", "width",
+  // Czech, Slovak, Polish, German, French, Spanish
+  "velikost", "barva", "styl", "vzor", "vuni", "obsah", "delka", "sirka", "velkost", "farba", "rozmiar", "kolor", "groesse", "grosse", "farbe", "couleur", "taille", "talla", "tamano",
 ]);
 
 interface OptionColumn {
@@ -82,16 +130,28 @@ function resolveOptionColumns(fields: string[]): { columns: OptionColumn[]; igno
 const OPTIONAL_WARNING_COLUMNS: ColumnKey[] = ["description", "images", "price", "sku"];
 
 function normalizeHeader(header: string): string {
-  return header.toLowerCase().replace(/[^a-z0-9]/g, "");
+  return header.normalize("NFKD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/[^a-z0-9]/g, "");
 }
 
 /** Maps each logical column to the header name the file actually uses (or null when absent). */
 function resolveColumns(fields: string[]): Record<ColumnKey, string | null> {
   const normalized = fields.map(normalizeHeader);
   const resolved = {} as Record<ColumnKey, string | null>;
+  const taken = new Set<number>();
   for (const key of COLUMN_KEYS) {
-    const index = normalized.findIndex((header) => HEADER_ALIASES[key].includes(header));
+    let index = -1;
+    for (const alias of HEADER_ALIASES[key]) {
+      index = normalized.findIndex((header, position) => header === alias && !taken.has(position));
+      if (index !== -1) break;
+    }
+    if (index !== -1) taken.add(index);
     resolved[key] = index === -1 ? null : fields[index];
+  }
+  // "Product code" next to a real SKU column names the product (it groups variants); on its own it is the SKU.
+  if (resolved.productCode === null && resolved.sku !== null) {
+    const skuIndex = fields.indexOf(resolved.sku);
+    const codeIndex = normalized.findIndex((header, position) => CODE_LIKE_SKU_HEADERS.has(header) && position !== skuIndex && !taken.has(position));
+    if (codeIndex !== -1 && !CODE_LIKE_SKU_HEADERS.has(normalized[skuIndex])) resolved.productCode = fields[codeIndex];
   }
   return resolved;
 }
@@ -118,6 +178,7 @@ export function mapParsedRows(
 
   const columns = resolveColumns(fields);
   const optionColumns = resolveOptionColumns(fields);
+  const weightUnit = columns.weight === null ? "" : weightUnitInHeader(columns.weight);
   if (columns.title === null) {
     throw new Error(
       `No product title column found. Expected a header like "title" or "name", but the file has: ${fields.slice(0, 8).join(", ")}.`,
@@ -155,6 +216,17 @@ export function mapParsedRows(
       sku: cell("sku"),
     };
     if (columns.handle !== null) row.handle = cell("handle");
+    if (columns.productCode !== null) row.productCode = cell("productCode");
+    if (columns.vendor !== null) row.vendor = cell("vendor");
+    if (columns.category !== null) row.category = cell("category");
+    if (columns.tags !== null) row.tags = cell("tags");
+    if (columns.stock !== null) row.stock = cell("stock");
+    if (columns.barcode !== null) row.barcode = cell("barcode");
+    if (columns.currency !== null) row.currency = cell("currency");
+    if (columns.weight !== null) {
+      row.weight = cell("weight");
+      row.weightUnit = weightUnit;
+    }
     if (optionColumns.columns.length > 0) {
       row.options = optionColumns.columns.map((column) => ({
         name: column.nameField === null ? column.fallbackName : (record[column.nameField] ?? "").trim() || column.fallbackName,

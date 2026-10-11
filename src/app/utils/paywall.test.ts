@@ -109,6 +109,49 @@ describe("the paid export gate (unlock-client + the lazily imported module)", ()
     expect(downloads[0].name).toBe("Free-feed-shopify-clean.csv");
   });
 
+  it("the person's switches reach the file: Import as active, and SKUs made unique (the export also hands back the whole file's report)", async () => {
+    const downloads = stubBrowser();
+    const shared = Array.from({ length: 4 }, (_, i) => ({
+      id: String(i + 1), title: "WIDGET", description: "", images: "", price: "$1.00", sku: "W-1",
+      options: [{ name: "Size", value: ["S", "M", "L", "XL"][i], derived: false }],
+    }));
+    const result = await exportCleanedFile({ rows: shared, fileName: "feed.csv", token: null, options: { status: "active", uniqueSkus: true } });
+    const lines = (await downloads[0].text).split("\r\n").filter(Boolean);
+    expect(lines[0]).toBe("\ufeffHandle,Title,Body (HTML),Image Src,Variant Price,Variant SKU,Option1 Name,Option1 Value,Status");
+    expect(lines.slice(1).map((line) => line.split(",").slice(-5))).toEqual([
+      ["1.00", "W-1-S", "Size", "S", "active"],
+      ["1.00", "W-1-M", "", "M", ""],
+      ["1.00", "W-1-L", "", "L", ""],
+      ["1.00", "W-1-XL", "", "XL", ""],
+    ]);
+    expect(result.report.options).toEqual({ uniqueSkus: true, status: "active", casing: "title" });
+    expect(result.report.skuChanges).toHaveLength(4);
+    expect(result.report.warnings.map((warning) => warning.kind)).toEqual(["duplicate_sku_in_product", "sku_changed", "currency_symbol_in_price"]);
+  });
+
+  it("the casing choice reaches the paid file: Title Case by default, then sentence case or as supplied when chosen", async () => {
+    const mugs: RawSupplierRow[] = [{ id: "1", title: "BLUE MUG 300ML", description: "", images: "", price: "9", sku: "M-1", vendor: "ACME TOOLS S.R.O." }];
+    const columnsFor = async (options?: { casing: "title" | "sentence" | "keep" }) => {
+      const downloads = stubBrowser();
+      await exportCleanedFile({ rows: mugs, fileName: "feed.csv", token: null, options });
+      const [header, line] = (await downloads[downloads.length - 1].text).split("\r\n").filter(Boolean);
+      const names = header.replace("\ufeff", "").split(",");
+      const cells = line.split(",");
+      return [cells[names.indexOf("Title")], cells[names.indexOf("Vendor")]];
+    };
+    expect(await columnsFor()).toEqual(["Blue Mug 300ml", "Acme Tools s.r.o."]);
+    expect(await columnsFor({ casing: "title" })).toEqual(["Blue Mug 300ml", "Acme Tools s.r.o."]);
+    expect(await columnsFor({ casing: "sentence" })).toEqual(["Blue mug 300ml", "Acme tools s.r.o."]);
+    expect(await columnsFor({ casing: "keep" })).toEqual(["BLUE MUG 300ML", "ACME TOOLS S.R.O."]);
+  });
+
+  it("without switches the file is drafts, and SKUs are made unique only when a product's variants share one", async () => {
+    const downloads = stubBrowser();
+    await exportCleanedFile({ rows: rows(3), fileName: "feed.csv", token: null });
+    const lines = (await downloads[0].text).split("\r\n").filter(Boolean);
+    expect(lines[1].split(",").pop()).toBe("draft");
+  });
+
   it("a file over the limit is refused without a token, and the server is never even asked", async () => {
     const downloads = stubBrowser();
     const fetchSpy = vi.fn();
@@ -143,7 +186,7 @@ describe("the paid export gate (unlock-client + the lazily imported module)", ()
     expect(fetchSpy).toHaveBeenCalledWith("/api/unlock/verify", expect.objectContaining({ method: "POST", body: JSON.stringify({ token: "good.token", fingerprint: null }) }));
     expect(result).toMatchObject({ products: FREE_ROW_LIMIT + 70, outputRows: FREE_ROW_LIMIT + 70 });
     const csv = await downloads[0].text;
-    expect(csv.startsWith("﻿Handle,Title,Body (HTML),Image Src,Variant Price,Variant SKU\r\n")).toBe(true);
+    expect(csv.startsWith("﻿Handle,Title,Body (HTML),Image Src,Image Position,Variant Price,Variant SKU,Status\r\n")).toBe(true);
     expect(csv.split("\r\n").filter(Boolean)).toHaveLength(FREE_ROW_LIMIT + 71);
     expect(csv).toContain("widget-q-120,Widget Q 120,<p>Desc 120</p>");
   });

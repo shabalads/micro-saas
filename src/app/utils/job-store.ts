@@ -8,7 +8,7 @@
 // Two stores: "meta" is tiny (which Stripe session, which file, when) so recovery can list parked files without
 // reading megabytes; "jobs" holds the rows themselves and is only read once a payment has been confirmed.
 
-import type { RawSupplierRow } from "../types/csv";
+import type { RawSupplierRow, SanitizeOptions } from "../types/csv";
 
 const DB_NAME = "shopify-csv-sanitizer";
 // v3 replaced the single v1/v2 "jobs" store (which held cleaned output and had no Stripe session id) with the two
@@ -34,6 +34,8 @@ export interface ParkedJobMeta {
   fileName: string | null;
   fileSize: number;
   warnings: string[];
+  /** The switches set before paying, so the file that comes back from Stripe is the one that was configured. Absent on files parked by older builds. */
+  options?: SanitizeOptions;
   savedAt: number;
 }
 

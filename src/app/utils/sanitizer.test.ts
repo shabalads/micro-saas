@@ -125,13 +125,21 @@ describe("multi-row variant handles", () => {
     expect(report).toMatchObject({ sourceRows: 4, productCount: 2, variantRows: 2, titlesFixed: 2 });
   });
 
-  it("attaches variants that appear later in the file to their product", () => {
-    const { rows } = sanitizeDataset([
+  it("never attaches a row that is NOT next to its product to the earlier product: it becomes a product of its own (and is warned about)", () => {
+    const { rows, report } = sanitizeDataset([
       row({ handle: "mug", title: "Mug", sku: "M1" }),
       row({ handle: "cup", title: "Cup", sku: "C1" }),
-      row({ handle: "mug", title: "", sku: "M2" }),
+      row({ handle: "mug", title: "Mug", sku: "M2" }),
     ]);
-    expect(rows.map((r) => [r.Handle, r.Title, r.Variant_SKU])).toEqual([["mug", "Mug", "M1"], ["cup", "Cup", "C1"], ["mug", "", "M2"]]);
+    expect(rows.map((r) => [r.Handle, r.Title, r.Variant_SKU])).toEqual([["mug", "Mug", "M1"], ["cup", "Cup", "C1"], ["mug-2", "Mug", "M2"]]);
+    expect(report).toMatchObject({ productCount: 3, variantRows: 0, duplicateHandlesResolved: 1 });
+    expect(report.warnings.map((warning) => warning.kind)).toEqual(["split_product"]);
+    expect(report.warnings[0]).toMatchObject({ count: 1, rows: [3] });
+  });
+
+  it("a variant row with a blank title directly under its product still attaches to it", () => {
+    const { rows } = sanitizeDataset([row({ handle: "mug", title: "Mug", sku: "M1" }), row({ handle: "mug", title: "", sku: "M2" }), row({ handle: "cup", title: "Cup", sku: "C1" })]);
+    expect(rows.map((r) => [r.Handle, r.Title])).toEqual([["mug", "Mug"], ["mug", ""], ["cup", "Cup"]]);
   });
 
   it("still separates two different products that collide on one handle", () => {

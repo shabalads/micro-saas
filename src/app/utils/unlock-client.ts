@@ -2,7 +2,7 @@
 //
 // Browser-side half of the paywall: ask the server for an unlock token, and only then load the paid export module.
 
-import type { RawSupplierRow } from "../types/csv";
+import type { RawSupplierRow, SanitizeOptions, SanitizeReport } from "../types/csv";
 import type { PurchaseGrant, UnlockResponse } from "../types/unlock";
 import { isFreeFile } from "./paywall";
 
@@ -69,7 +69,9 @@ export async function exportCleanedFile(params: {
   token: string | null;
   /** The file about to be exported. A free-trial token is only good for the file it was issued for, so the server is told which. */
   fingerprint?: string | null;
-}): Promise<{ products: number; outputRows: number }> {
+  /** The switches the person set next to the download button. Omitted: the defaults (see sanitizeDataset). */
+  options?: Partial<SanitizeOptions>;
+}): Promise<{ products: number; outputRows: number; report: SanitizeReport }> {
   if (!isFreeFile(params.rows.length)) {
     if (!params.token) throw new ExportBlockedError("token", "This file needs to be unlocked first.");
     let response: Response;
@@ -92,5 +94,5 @@ export async function exportCleanedFile(params: {
   }
 
   const { exportCleanedCsv } = await import("../full-export/full-export");
-  return exportCleanedCsv({ rows: params.rows, fileName: params.fileName, token: params.token });
+  return exportCleanedCsv({ rows: params.rows, fileName: params.fileName, token: params.token, options: params.options });
 }

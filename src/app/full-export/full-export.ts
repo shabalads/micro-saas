@@ -9,7 +9,7 @@
 // producing the full file before payment, but it cannot stop someone who reverse-engineers the bundle from
 // running the cleaner themselves. Hard enforcement would mean doing this work on the server.
 
-import type { RawSupplierRow } from "../types/csv";
+import type { RawSupplierRow, SanitizeOptions, SanitizeReport } from "../types/csv";
 import { FREE_ROW_LIMIT } from "../utils/pricing";
 import { sanitizeDataset } from "../utils/sanitizer";
 import { buildOutputFileName, toShopifyCsv } from "./csv-writer";
@@ -17,6 +17,8 @@ import { buildOutputFileName, toShopifyCsv } from "./csv-writer";
 export interface ExportResult {
   products: number;
   outputRows: number;
+  /** The report of the WHOLE file (the page only has the free preview's until now): its warnings are what the person should check. */
+  report: SanitizeReport;
 }
 
 /** Cleans EVERY row, builds the Shopify CSV and hands it to the browser as a download. */
@@ -25,12 +27,14 @@ export function exportCleanedCsv(params: {
   fileName: string | null;
   /** The token the server issued after payment. Not needed for files within the free limit. */
   token: string | null;
+  /** "Make SKUs unique per variant" and "Import as active". Omitted: SKUs are made unique when a product's variants share one, and products are drafts. */
+  options?: Partial<SanitizeOptions>;
 }): ExportResult {
   if (params.rows.length > FREE_ROW_LIMIT && !params.token) {
     throw new Error(`Exporting more than ${FREE_ROW_LIMIT} rows requires an unlock token.`);
   }
 
-  const { rows: cleaned, report } = sanitizeDataset(params.rows);
+  const { rows: cleaned, report } = sanitizeDataset(params.rows, params.options);
   const csv = toShopifyCsv(cleaned);
   // The BOM makes Excel open accented characters correctly; Shopify's importer accepts it.
   const blob = new Blob(["﻿", csv], { type: "text/csv;charset=utf-8" });
@@ -44,5 +48,5 @@ export function exportCleanedCsv(params: {
   link.remove();
   setTimeout(() => URL.revokeObjectURL(url), 1500);
 
-  return { products: report.productCount, outputRows: report.outputRowCount };
+  return { products: report.productCount, outputRows: report.outputRowCount, report };
 }

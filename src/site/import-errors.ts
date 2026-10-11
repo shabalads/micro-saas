@@ -81,7 +81,7 @@ export const IMPORT_ERRORS: ImportErrorGuide[] = [
     ],
     coverage: "fixes",
     toolNote:
-      "Rows that repeat a handle with a blank or identical title are kept as variants of the first row's product. Two different products that collide on a handle get -2, -3 and so on, so none is ignored. Handles are also slugified. It cannot know whether a product already exists in your store, so the overwrite choice stays yours.",
+      "Rows that repeat a handle with a blank or identical title, directly under the product, are kept as its variants. The same handle or title again anywhere else, or two different products that collide on a handle, become separate products with -2, -3 and so on (and a warning), so none is ignored and none is folded into an earlier product. Handles are also slugified. It cannot know whether a product already exists in your store, so the overwrite choice stays yours.",
     demo: { kind: "rows", rows: [{ title: "Blue Mug", handle: "mug" }, { title: "Red Mug", handle: "mug" }, { title: "Green Mug", handle: "mug" }], field: "handle", expect: "mug-2" },
     related: ["invalid-handle", "options-are-not-unique", "ignored-line-no-product-data"],
     updated: UPDATED,

@@ -1,0 +1,151 @@
+SKU;Title;Description;Price;Currency;Stock;Vendor;Category;Size;Color;Image;EAN
+SKU-1000;PROFESIONÁLNÍ PÌNOVÁ MATRACE XL;"<span style=""font-family:Calibri"">PRO NÁROÈNÉ ZÁKAZNÍKY</span>&nbsp;&nbsp;Záruka 24 mìsícù.";1.899,00;CZK;12;£ÓD HURT SP. Z O.O.;Móda;;;http://example.com/img/SKU-1000.png;
+SKU-1001;ERGONOMICKÁ KANCELÁØSKÁ IDLE;"Odolnı materiál, snadná údrba.<br/><br/><font color=""#ff0000"">NOVINKA</font>";799,00;CZK;skladem;TECH-IMPORT;Dùm a zahrada;S;Èerná;http://example.com/img/SKU-1001.png;
+SKU-1001;ERGONOMICKÁ KANCELÁØSKÁ IDLE;"Odolnı materiál, snadná údrba.<br/><br/><font color=""#ff0000"">NOVINKA</font>";149,50;CZK;skladem;TECH-IMPORT;Dùm a zahrada;S;Šedá;https://example.com/img/SKU-1001.jpg;8371407742358
+SKU-1001;ERGONOMICKÁ KANCELÁØSKÁ IDLE;"Odolnı materiál, snadná údrba.<br/><br/><font color=""#ff0000"">NOVINKA</font>";1899,00;CZK;12;TECH-IMPORT;Dùm a zahrada;M;Èerná;http://example.com/img/SKU-1001.png;
+SKU-1001;ERGONOMICKÁ KANCELÁØSKÁ IDLE;"Odolnı materiál, snadná údrba.<br/><br/><font color=""#ff0000"">NOVINKA</font>";499,50;CZK;  5 ;TECH-IMPORT;Dùm a zahrada;L;Èerná;;
+SKU-1001;ERGONOMICKÁ KANCELÁØSKÁ IDLE;"Odolnı materiál, snadná údrba.<br/><br/><font color=""#ff0000"">NOVINKA</font>";149,90;Kè;12;TECH-IMPORT;Dùm a zahrada;XL;Èerná;https://example.com/img/SKU-1001.jpg;
+SKU-1002;BEZDRÁTOVÁ MYŠ USB-C 2.4GHZ;"<div><div><div style=""color:red"">AKÈNÍ NABÍDKA!!!</div></div></div><p>Rychlé dodání z našeho skladu.</p>";399,90;CZK;12;TECH-IMPORT;Móda;S;Èerná;http://example.com/img/SKU-1002.png;9026421533917
+SKU-1002;BEZDRÁTOVÁ MYŠ USB-C 2.4GHZ;"<div><div><div style=""color:red"">AKÈNÍ NABÍDKA!!!</div></div></div><p>Rychlé dodání z našeho skladu.</p>";799,50;;27;TECH-IMPORT;Móda;M;Èerná;;
+SKU-1002;BEZDRÁTOVÁ MYŠ USB-C 2.4GHZ;"<div><div><div style=""color:red"">AKÈNÍ NABÍDKA!!!</div></div></div><p>Rychlé dodání z našeho skladu.</p>";399,00;;0;TECH-IMPORT;Móda;M;Šedá;http://example.com/img/SKU-1002.png;9684926795128
+SKU-1002;BEZDRÁTOVÁ MYŠ USB-C 2.4GHZ;"<div><div><div style=""color:red"">AKÈNÍ NABÍDKA!!!</div></div></div><p>Rychlé dodání z našeho skladu.</p>";1.899,50;;  5 ;TECH-IMPORT;Móda;L;Èerná;;
+SKU-1002;BEZDRÁTOVÁ MYŠ USB-C 2.4GHZ;"<div><div><div style=""color:red"">AKÈNÍ NABÍDKA!!!</div></div></div><p>Rychlé dodání z našeho skladu.</p>";799,00;CZK;27;TECH-IMPORT;Móda;L;Šedá;;
+SKU-1002;BEZDRÁTOVÁ MYŠ USB-C 2.4GHZ;"<div><div><div style=""color:red"">AKÈNÍ NABÍDKA!!!</div></div></div><p>Rychlé dodání z našeho skladu.</p>";2.499,00 Kè;Kè;  5 ;TECH-IMPORT;Móda;XL;Èerná;https://example.com/img/SKU-1002.jpg;5104522075273
+SKU-1002;BEZDRÁTOVÁ MYŠ USB-C 2.4GHZ;"<div><div><div style=""color:red"">AKÈNÍ NABÍDKA!!!</div></div></div><p>Rychlé dodání z našeho skladu.</p>";499,00;CZK;skladem;TECH-IMPORT;Móda;XL;Šedá;;
+SKU-1003;TERMOHRNEK NEREZ 750ML;"Odolnı materiál, snadná údrba.<br/><br/><font color=""#ff0000"">NOVINKA</font>";199,00 Kè;CZK;  5 ;Øíèany Wholesale;Kuchynì;S;Èerná;https://example.com/img/SKU-1003.jpg;2181934668157
+SKU-1003;TERMOHRNEK NEREZ 750ML;"Odolnı materiál, snadná údrba.<br/><br/><font color=""#ff0000"">NOVINKA</font>";799,00 Kè;Kè;skladem;Øíèany Wholesale;Kuchynì;S;Šedá;http://example.com/img/SKU-1003.png;2237060106746
+SKU-1003;TERMOHRNEK NEREZ 750ML;"Odolnı materiál, snadná údrba.<br/><br/><font color=""#ff0000"">NOVINKA</font>";1.299,90 Kè;CZK;  5 ;Øíèany Wholesale;Kuchynì;M;Èerná;;
+SKU-1003;TERMOHRNEK NEREZ 750ML;"Odolnı materiál, snadná údrba.<br/><br/><font color=""#ff0000"">NOVINKA</font>";1.899,00;Kè;0;Øíèany Wholesale;Kuchynì;L;Èerná;http://example.com/img/SKU-1003.png;
+SKU-1003;TERMOHRNEK NEREZ 750ML;"Odolnı materiál, snadná údrba.<br/><br/><font color=""#ff0000"">NOVINKA</font>";149,50;Kè;;Øíèany Wholesale;Kuchynì;L;Šedá;http://example.com/img/SKU-1003.png;
+SKU-1004;SPORTOVNÍ LÁHEV 500ML;"<div><div><div style=""color:red"">AKÈNÍ NABÍDKA!!!</div></div></div><p>Rychlé dodání z našeho skladu.</p>";299,90;CZK;0;Pøíbramská Vıroba;ELEKTRONIKA;;;;
+SKU-1005;LED STOLNÍ LAMPA S USB;<table><tr><td>Rozmìry: 20x30cm</td></tr></table><center>TOP PRODUKT</center>;Kè 2.499,50;Kè;27;TECH-IMPORT;Sport & Outdoor;;;;5558988556685
+SKU-1006;DÌTSKÁ ZIMNÍ BUNDA;"<span style=""font-family:Calibri"">PRO NÁROÈNÉ ZÁKAZNÍKY</span>&nbsp;&nbsp;Záruka 24 mìsícù.";499,00;;27;ïárské Textilie s.r.o.;ELEKTRONIKA;S;Èerná;http://example.com/img/SKU-1006.png;
+SKU-1006;DÌTSKÁ ZIMNÍ BUNDA;"<span style=""font-family:Calibri"">PRO NÁROÈNÉ ZÁKAZNÍKY</span>&nbsp;&nbsp;Záruka 24 mìsícù.";Kè 149,90;;;ïárské Textilie s.r.o.;ELEKTRONIKA;M;Èerná;https://example.com/img/SKU-1006.jpg;
+SKU-1006;DÌTSKÁ ZIMNÍ BUNDA;"<span style=""font-family:Calibri"">PRO NÁROÈNÉ ZÁKAZNÍKY</span>&nbsp;&nbsp;Záruka 24 mìsícù.";99,00;;0;ïárské Textilie s.r.o.;ELEKTRONIKA;M;Šedá;https://example.com/img/SKU-1006.jpg;3794841728962
+SKU-1006;DÌTSKÁ ZIMNÍ BUNDA;"<span style=""font-family:Calibri"">PRO NÁROÈNÉ ZÁKAZNÍKY</span>&nbsp;&nbsp;Záruka 24 mìsícù.";1.899,00;CZK;skladem;ïárské Textilie s.r.o.;ELEKTRONIKA;L;Èerná;https://example.com/img/SKU-1006.jpg;7167304462058
+SKU-1006;PÁNSKÉ TRIÈKO BAVLNA;POPIS NENÍ K DISPOZICI;499,50;;skladem;Øíèany Wholesale;;S;Èerná;https://example.com/img/SKU-1007.jpg;9814531173585
+SKU-1007;PÁNSKÉ TRIÈKO BAVLNA;POPIS NENÍ K DISPOZICI;Kè 1.899,00;CZK;0;Øíèany Wholesale;;M;Èerná;https://example.com/img/SKU-1007.jpg;
+SKU-1007;PÁNSKÉ TRIÈKO BAVLNA;POPIS NENÍ K DISPOZICI;149,00 Kè;;skladem;Øíèany Wholesale;;M;Šedá;https://example.com/img/SKU-1007.jpg;
+SKU-1007;PÁNSKÉ TRIÈKO BAVLNA;POPIS NENÍ K DISPOZICI;99,00;;;Øíèany Wholesale;;L;Èerná;https://example.com/img/SKU-1007.jpg;5368225791124
+SKU-1007;PÁNSKÉ TRIÈKO BAVLNA;POPIS NENÍ K DISPOZICI;2.499,00 Kè;;skladem;Øíèany Wholesale;;XL;Èerná;https://example.com/img/SKU-1007.jpg;
+SKU-1008;DÁMSKÉ LEGÍNY SPORT;<table><tr><td>Rozmìry: 20x30cm</td></tr></table><center>TOP PRODUKT</center>;Kè 799,00;;0;  DomoPlus  ;Móda;;;http://example.com/img/SKU-1008.png;
+SKU-1009;KUCHYÒSKİ NÙ ŠEF 20CM;"<span style=""font-family:Calibri"">PRO NÁROÈNÉ ZÁKAZNÍKY</span>&nbsp;&nbsp;Záruka 24 mìsícù.";1.299,00;;0;ïárské Textilie s.r.o.;;S;Èerná;https://example.com/img/SKU-1009.jpg;
+SKU-1009;KUCHYÒSKİ NÙ ŠEF 20CM;"<span style=""font-family:Calibri"">PRO NÁROÈNÉ ZÁKAZNÍKY</span>&nbsp;&nbsp;Záruka 24 mìsícù.";799,90 Kè;;27;ïárské Textilie s.r.o.;;M;Èerná;https://example.com/img/SKU-1009.jpg;4937765365781
+SKU-1009;KUCHYÒSKİ NÙ ŠEF 20CM;"<span style=""font-family:Calibri"">PRO NÁROÈNÉ ZÁKAZNÍKY</span>&nbsp;&nbsp;Záruka 24 mìsícù.";1.299,90;;skladem;ïárské Textilie s.r.o.;;M;Šedá;;
+SKU-1010;SADA HRNCÙ 5 DÍLÙ;"<span style=""font-family:Calibri"">PRO NÁROÈNÉ ZÁKAZNÍKY</span>&nbsp;&nbsp;Záruka 24 mìsícù.";199,50;;12;  DomoPlus  ;Kuchynì;S;Èerná;https://example.com/img/SKU-1010.jpg;
+SKU-1010;SADA HRNCÙ 5 DÍLÙ;"<span style=""font-family:Calibri"">PRO NÁROÈNÉ ZÁKAZNÍKY</span>&nbsp;&nbsp;Záruka 24 mìsícù.";1.899,90 Kè;CZK;skladem;  DomoPlus  ;Kuchynì;M;Èerná;http://example.com/img/SKU-1010.png;8139346363220
+SKU-1011;BATOH NA NOTEBOOK 15.6;"<span style=""font-family:Calibri"">PRO NÁROÈNÉ ZÁKAZNÍKY</span>&nbsp;&nbsp;Záruka 24 mìsícù.";149,90;Kè;;ïárské Textilie s.r.o.;;S;Èerná;;4912097713362
+SKU-1011;BATOH NA NOTEBOOK 15.6;"<span style=""font-family:Calibri"">PRO NÁROÈNÉ ZÁKAZNÍKY</span>&nbsp;&nbsp;Záruka 24 mìsícù.";299,00;Kè;27;ïárské Textilie s.r.o.;;S;Šedá;;
+SKU-1011;BATOH NA NOTEBOOK 15.6;"<span style=""font-family:Calibri"">PRO NÁROÈNÉ ZÁKAZNÍKY</span>&nbsp;&nbsp;Záruka 24 mìsícù.";1.899,00 Kè;;;ïárské Textilie s.r.o.;;M;Èerná;https://example.com/img/SKU-1011.jpg;
+SKU-1011;EHLIÈKA NA VLASY KERAMICKÁ;<table><tr><td>Rozmìry: 20x30cm</td></tr></table><center>TOP PRODUKT</center>;299,90;;  5 ;Øíèany Wholesale;ELEKTRONIKA;S;Èerná;http://example.com/img/SKU-1012.png;
+SKU-1012;EHLIÈKA NA VLASY KERAMICKÁ;<table><tr><td>Rozmìry: 20x30cm</td></tr></table><center>TOP PRODUKT</center>;299,50;CZK;0;Øíèany Wholesale;ELEKTRONIKA;S;Šedá;http://example.com/img/SKU-1012.png;
+SKU-1012;EHLIÈKA NA VLASY KERAMICKÁ;<table><tr><td>Rozmìry: 20x30cm</td></tr></table><center>TOP PRODUKT</center>;Kè 149,50;CZK;12;Øíèany Wholesale;ELEKTRONIKA;M;Èerná;;1957699890518
+SKU-1013;POKOJOVÁ ROSTLINA KAKTUS;"<font face=""Arial"" size=""2""><b>VİBORNÁ KVALITA</b></font><br><br>Skvìlı produkt pro kadou domácnost.";Kè 399,00;CZK;0;ïárské Textilie s.r.o.;;;;http://example.com/img/SKU-1013.png;
+SKU-1013;KOBEREC SHAGGY 160X230;"<div><div><div style=""color:red"">AKÈNÍ NABÍDKA!!!</div></div></div><p>Rychlé dodání z našeho skladu.</p>";499,90;;12;Pøíbramská Vıroba;Móda;S;Èerná;;7271587978904
+SKU-1014;KOBEREC SHAGGY 160X230;"<div><div><div style=""color:red"">AKÈNÍ NABÍDKA!!!</div></div></div><p>Rychlé dodání z našeho skladu.</p>";149,50;CZK;12;Pøíbramská Vıroba;Móda;S;Šedá;http://example.com/img/SKU-1014.png;
+SKU-1014;KOBEREC SHAGGY 160X230;"<div><div><div style=""color:red"">AKÈNÍ NABÍDKA!!!</div></div></div><p>Rychlé dodání z našeho skladu.</p>";299,00;CZK;;Pøíbramská Vıroba;Móda;M;Èerná;https://example.com/img/SKU-1014.jpg;
+SKU-1014;KOBEREC SHAGGY 160X230;"<div><div><div style=""color:red"">AKÈNÍ NABÍDKA!!!</div></div></div><p>Rychlé dodání z našeho skladu.</p>";1.299,00 Kè;CZK;27;Pøíbramská Vıroba;Móda;M;Šedá;http://example.com/img/SKU-1014.png;
+SKU-1014;KOBEREC SHAGGY 160X230;"<div><div><div style=""color:red"">AKÈNÍ NABÍDKA!!!</div></div></div><p>Rychlé dodání z našeho skladu.</p>";1899,00;CZK;27;Pøíbramská Vıroba;Móda;L;Èerná;http://example.com/img/SKU-1014.png;
+SKU-1015;POLŠTÁØ MEMORY FOAM;POPIS NENÍ K DISPOZICI;99,00 Kè;CZK;12;Øíèany Wholesale;Kuchynì;;;http://example.com/img/SKU-1015.png;5044325416213
+SKU-1016;OCHRANNÉ SKLO NA TELEFON;"Odolnı materiál, snadná údrba.<br/><br/><font color=""#ff0000"">NOVINKA</font>";1899,00;CZK;skladem;TECH-IMPORT;Kuchynì;S;Èerná;;
+SKU-1016;OCHRANNÉ SKLO NA TELEFON;"Odolnı materiál, snadná údrba.<br/><br/><font color=""#ff0000"">NOVINKA</font>";Kè 299,90;;0;TECH-IMPORT;Kuchynì;M;Èerná;;
+SKU-1016;OCHRANNÉ SKLO NA TELEFON;"Odolnı materiál, snadná údrba.<br/><br/><font color=""#ff0000"">NOVINKA</font>";499,50 Kè;CZK;0;TECH-IMPORT;Kuchynì;M;Šedá;http://example.com/img/SKU-1016.png;
+SKU-1017;POWERBANKA 20000MAH USB-C;"<font face=""Arial"" size=""2""><b>VİBORNÁ KVALITA</b></font><br><br>Skvìlı produkt pro kadou domácnost.";Kè 399,50;;  5 ;TECH-IMPORT;Dùm a zahrada;;;https://example.com/img/SKU-1017.jpg;
+SKU-1018;ZAHRADNÍ NÙKY ØEZÁK;"Odolnı materiál, snadná údrba.<br/><br/><font color=""#ff0000"">NOVINKA</font>";799,00;CZK;;ïárské Textilie s.r.o.;Kuchynì;S;Èerná;https://example.com/img/SKU-1018.jpg;
+SKU-1018;ZAHRADNÍ NÙKY ØEZÁK;"Odolnı materiál, snadná údrba.<br/><br/><font color=""#ff0000"">NOVINKA</font>";1.899,50;Kè;27;ïárské Textilie s.r.o.;Kuchynì;S;Šedá;https://example.com/img/SKU-1018.jpg;
+SKU-1018;ZAHRADNÍ NÙKY ØEZÁK;"Odolnı materiál, snadná údrba.<br/><br/><font color=""#ff0000"">NOVINKA</font>";Kè 1.299,90;Kè;12;ïárské Textilie s.r.o.;Kuchynì;M;Èerná;;1435484259842
+SKU-1019;KOŠILE PÁNSKÁ SLIM FIT;;99,50 Kè;Kè;0;£ÓD HURT SP. Z O.O.;Móda;S;Èerná;;8008695613208
+SKU-1019;KOŠILE PÁNSKÁ SLIM FIT;;399,00 Kè;CZK;  5 ;£ÓD HURT SP. Z O.O.;Móda;M;Èerná;;
+SKU-1019;KOŠILE PÁNSKÁ SLIM FIT;;799,50;Kè;;£ÓD HURT SP. Z O.O.;Móda;M;Šedá;http://example.com/img/SKU-1019.png;3619653411235
+SKU-1019;KOŠILE PÁNSKÁ SLIM FIT;;1.899,00;CZK;  5 ;£ÓD HURT SP. Z O.O.;Móda;L;Èerná;;
+SKU-1020;£ÓD RETRO PLAKÁT A3;;Kè 199,90;Kè;0;TECH-IMPORT;Móda;;;;
+SKU-1021;¯UBRÓWKA DÁRKOVİ KOŠ;"<span style=""font-family:Calibri"">PRO NÁROÈNÉ ZÁKAZNÍKY</span>&nbsp;&nbsp;Záruka 24 mìsícù.";799,00;CZK;skladem;Pøíbramská Vıroba;Sport & Outdoor;;;;
+SKU-1022;ŒWIECA SOJOWA LAWENDA 200G;"<font face=""Arial"" size=""2""><b>VİBORNÁ KVALITA</b></font><br><br>Skvìlı produkt pro kadou domácnost.";1.899,00;CZK;0;£ÓD HURT SP. Z O.O.;Kuchynì;;;https://example.com/img/SKU-1022.jpg;
+SKU-1023;DØEVÌNİ ŠPERKOVNÍK;"<div><div><div style=""color:red"">AKÈNÍ NABÍDKA!!!</div></div></div><p>Rychlé dodání z našeho skladu.</p>";799,90;CZK;  5 ;Pøíbramská Vıroba;Kuchynì;S;Èerná;https://example.com/img/SKU-1023.jpg;
+SKU-1023;DØEVÌNİ ŠPERKOVNÍK;"<div><div><div style=""color:red"">AKÈNÍ NABÍDKA!!!</div></div></div><p>Rychlé dodání z našeho skladu.</p>";2.499,50;CZK;;Pøíbramská Vıroba;Kuchynì;S;Šedá;;
+SKU-1023;DØEVÌNİ ŠPERKOVNÍK;"<div><div><div style=""color:red"">AKÈNÍ NABÍDKA!!!</div></div></div><p>Rychlé dodání z našeho skladu.</p>";799,50;CZK;  5 ;Pøíbramská Vıroba;Kuchynì;M;Èerná;https://example.com/img/SKU-1023.jpg;
+SKU-1023;DØEVÌNİ ŠPERKOVNÍK;"<div><div><div style=""color:red"">AKÈNÍ NABÍDKA!!!</div></div></div><p>Rychlé dodání z našeho skladu.</p>";Kè 99,00;;  5 ;Pøíbramská Vıroba;Kuchynì;M;Šedá;http://example.com/img/SKU-1023.png;
+SKU-1024;CESTOVNÍ KUFR ABS 65L;"Odolnı materiál, snadná údrba.<br/><br/><font color=""#ff0000"">NOVINKA</font>";399,00 Kè;;12;£ÓD HURT SP. Z O.O.;Dùm a zahrada;S;Èerná;https://example.com/img/SKU-1024.jpg;
+SKU-1024;CESTOVNÍ KUFR ABS 65L;"Odolnı materiál, snadná údrba.<br/><br/><font color=""#ff0000"">NOVINKA</font>";Kè 2.499,00;Kè;skladem;£ÓD HURT SP. Z O.O.;Dùm a zahrada;M;Èerná;https://example.com/img/SKU-1024.jpg;
+SKU-1024;CESTOVNÍ KUFR ABS 65L;"Odolnı materiál, snadná údrba.<br/><br/><font color=""#ff0000"">NOVINKA</font>";1.299,50 Kè;CZK;;£ÓD HURT SP. Z O.O.;Dùm a zahrada;M;Šedá;http://example.com/img/SKU-1024.png;
+SKU-1024;YOGA PODLOKA 6MM;"Odolnı materiál, snadná údrba.<br/><br/><font color=""#ff0000"">NOVINKA</font>";1.299,90;Kè;0;  DomoPlus  ;ELEKTRONIKA;;;;1971982872522
+SKU-1026;ÈAJOVÁ KONVICE SKLO 1L;"<div><div><div style=""color:red"">AKÈNÍ NABÍDKA!!!</div></div></div><p>Rychlé dodání z našeho skladu.</p>";499,90;CZK;  5 ;Øíèany Wholesale;Móda;;;https://example.com/img/SKU-1026.jpg;
+SKU-1027;TEPLÁKY DÌTSKÉ ŠEDÉ;POPIS NENÍ K DISPOZICI;299,90;Kè;0;Pøíbramská Vıroba;;;;;
+SKU-1028;LEDNICE MINI 45L ŠEDÁ;POPIS NENÍ K DISPOZICI;Kè 99,00;CZK;  5 ;Pøíbramská Vıroba;Dùm a zahrada;;;https://example.com/img/SKU-1028.jpg;
+SKU-1029;NÁRAMEK FITNESS ÈERNİ;"<div><div><div style=""color:red"">AKÈNÍ NABÍDKA!!!</div></div></div><p>Rychlé dodání z našeho skladu.</p>";149,00 Kè;CZK;12;ïárské Textilie s.r.o.;Kuchynì;S;Èerná;http://example.com/img/SKU-1029.png;
+SKU-1029;NÁRAMEK FITNESS ÈERNİ;"<div><div><div style=""color:red"">AKÈNÍ NABÍDKA!!!</div></div></div><p>Rychlé dodání z našeho skladu.</p>";799,50 Kè;;;ïárské Textilie s.r.o.;Kuchynì;M;Èerná;http://example.com/img/SKU-1029.png;9228067742176
+SKU-1030;HOUPACÍ KØESLO ŠEDÉ;"<div><div><div style=""color:red"">AKÈNÍ NABÍDKA!!!</div></div></div><p>Rychlé dodání z našeho skladu.</p>";399,90;CZK;;ïárské Textilie s.r.o.;Dùm a zahrada;S;Èerná;https://example.com/img/SKU-1030.jpg;
+SKU-1030;HOUPACÍ KØESLO ŠEDÉ;"<div><div><div style=""color:red"">AKÈNÍ NABÍDKA!!!</div></div></div><p>Rychlé dodání z našeho skladu.</p>";499,90;;;ïárské Textilie s.r.o.;Dùm a zahrada;S;Šedá;https://example.com/img/SKU-1030.jpg;8855149467076
+SKU-1030;HOUPACÍ KØESLO ŠEDÉ;"<div><div><div style=""color:red"">AKÈNÍ NABÍDKA!!!</div></div></div><p>Rychlé dodání z našeho skladu.</p>";99,90;CZK;  5 ;ïárské Textilie s.r.o.;Dùm a zahrada;M;Èerná;http://example.com/img/SKU-1030.png;8120053623470
+SKU-1030;HOUPACÍ KØESLO ŠEDÉ;"<div><div><div style=""color:red"">AKÈNÍ NABÍDKA!!!</div></div></div><p>Rychlé dodání z našeho skladu.</p>";499,00 Kè;Kè;;ïárské Textilie s.r.o.;Dùm a zahrada;M;Šedá;http://example.com/img/SKU-1030.png;
+SKU-1031;SVÍCEN KOVOVİ ÈERNİ;"<span style=""font-family:Calibri"">PRO NÁROÈNÉ ZÁKAZNÍKY</span>&nbsp;&nbsp;Záruka 24 mìsícù.";Kè 1.299,90;Kè;12;Pøíbramská Vıroba;Dùm a zahrada;;;http://example.com/img/SKU-1031.png;1425482361545
+SKU-1032;ŠÁLEK KERAMICKİ MODRİ 300ML;"Odolnı materiál, snadná údrba.<br/><br/><font color=""#ff0000"">NOVINKA</font>";499,00;CZK;  5 ;TECH-IMPORT;ELEKTRONIKA;;;http://example.com/img/SKU-1032.png;
+SKU-1033;DEKA FLEECE 150X200;"Odolnı materiál, snadná údrba.<br/><br/><font color=""#ff0000"">NOVINKA</font>";149,50;CZK;12;£ÓD HURT SP. Z O.O.;ELEKTRONIKA;;;;
+SKU-1034;RUÈNÍK FROTÉ 70X140;"<div><div><div style=""color:red"">AKÈNÍ NABÍDKA!!!</div></div></div><p>Rychlé dodání z našeho skladu.</p>";1299,00;CZK;  5 ;ïárské Textilie s.r.o.;Móda;;;;5119617490262
+SKU-1035;ZRCADLO KULATÉ 60CM ZLATÉ;POPIS NENÍ K DISPOZICI;399,00 Kè;CZK;0;Pøíbramská Vıroba;Sport & Outdoor;S;Èerná;https://example.com/img/SKU-1035.jpg;5312944897032
+SKU-1035;ZRCADLO KULATÉ 60CM ZLATÉ;POPIS NENÍ K DISPOZICI;99,00;;  5 ;Pøíbramská Vıroba;Sport & Outdoor;S;Šedá;https://example.com/img/SKU-1035.jpg;
+SKU-1035;ZRCADLO KULATÉ 60CM ZLATÉ;POPIS NENÍ K DISPOZICI;399,00;CZK;12;Pøíbramská Vıroba;Sport & Outdoor;M;Èerná;https://example.com/img/SKU-1035.jpg;
+SKU-1035;ZRCADLO KULATÉ 60CM ZLATÉ;POPIS NENÍ K DISPOZICI;1.299,50;CZK;0;Pøíbramská Vıroba;Sport & Outdoor;M;Šedá;http://example.com/img/SKU-1035.png;
+SKU-1035;ZRCADLO KULATÉ 60CM ZLATÉ;POPIS NENÍ K DISPOZICI;499,50;CZK;12;Pøíbramská Vıroba;Sport & Outdoor;L;Èerná;http://example.com/img/SKU-1035.png;7153055824174
+SKU-1035;ZRCADLO KULATÉ 60CM ZLATÉ;POPIS NENÍ K DISPOZICI;799,50;Kè;;Pøíbramská Vıroba;Sport & Outdoor;L;Šedá;;4581633165087
+SKU-1036;KOŠ NA PRÁDLO BAMBUS;"<font face=""Arial"" size=""2""><b>VİBORNÁ KVALITA</b></font><br><br>Skvìlı produkt pro kadou domácnost.";1899,00;CZK;27;£ÓD HURT SP. Z O.O.;Dùm a zahrada;;;https://example.com/img/SKU-1036.jpg;
+SKU-1037;EBØÍK HLINÍKOVİ 3 STUPNÌ;;Kè 399,50;;12;£ÓD HURT SP. Z O.O.;Móda;;;;
+SKU-1038;SPACÁK ZIMNÍ -10°C;"<font face=""Arial"" size=""2""><b>VİBORNÁ KVALITA</b></font><br><br>Skvìlı produkt pro kadou domácnost.";1.299,00;CZK;;Pøíbramská Vıroba;;S;Èerná;;
+SKU-1038;SPACÁK ZIMNÍ -10°C;"<font face=""Arial"" size=""2""><b>VİBORNÁ KVALITA</b></font><br><br>Skvìlı produkt pro kadou domácnost.";2499,50;CZK;skladem;Pøíbramská Vıroba;;S;Šedá;https://example.com/img/SKU-1038.jpg;7978934426381
+SKU-1038;SPACÁK ZIMNÍ -10°C;"<font face=""Arial"" size=""2""><b>VİBORNÁ KVALITA</b></font><br><br>Skvìlı produkt pro kadou domácnost.";299,50;CZK;  5 ;Pøíbramská Vıroba;;M;Èerná;;
+SKU-1038;SPACÁK ZIMNÍ -10°C;"<font face=""Arial"" size=""2""><b>VİBORNÁ KVALITA</b></font><br><br>Skvìlı produkt pro kadou domácnost.";799,00;CZK;27;Pøíbramská Vıroba;;L;Èerná;;
+SKU-1038;SPACÁK ZIMNÍ -10°C;"<font face=""Arial"" size=""2""><b>VİBORNÁ KVALITA</b></font><br><br>Skvìlı produkt pro kadou domácnost.";1299,00;CZK;0;Pøíbramská Vıroba;;XL;Èerná;https://example.com/img/SKU-1038.jpg;
+SKU-1038;SPACÁK ZIMNÍ -10°C;"<font face=""Arial"" size=""2""><b>VİBORNÁ KVALITA</b></font><br><br>Skvìlı produkt pro kadou domácnost.";199,00;CZK;12;Pøíbramská Vıroba;;XL;Šedá;http://example.com/img/SKU-1038.png;
+SKU-1039;STAN KEMPING 3 OSOBY;<table><tr><td>Rozmìry: 20x30cm</td></tr></table><center>TOP PRODUKT</center>;399,90 Kè;CZK;27;Øíèany Wholesale;Dùm a zahrada;;;;
+SKU-1040;PROFESIONÁLNÍ PÌNOVÁ MATRACE XL;"Odolnı materiál, snadná údrba.<br/><br/><font color=""#ff0000"">NOVINKA</font>";Kè 1.299,00;;skladem;TECH-IMPORT;;S;Èerná;;
+SKU-1040;PROFESIONÁLNÍ PÌNOVÁ MATRACE XL;"Odolnı materiál, snadná údrba.<br/><br/><font color=""#ff0000"">NOVINKA</font>";1.299,00;CZK;12;TECH-IMPORT;;S;Šedá;https://example.com/img/SKU-1040.jpg;
+SKU-1040;PROFESIONÁLNÍ PÌNOVÁ MATRACE XL;"Odolnı materiál, snadná údrba.<br/><br/><font color=""#ff0000"">NOVINKA</font>";199,00;CZK;  5 ;TECH-IMPORT;;M;Èerná;http://example.com/img/SKU-1040.png;
+SKU-1040;PROFESIONÁLNÍ PÌNOVÁ MATRACE XL;"Odolnı materiál, snadná údrba.<br/><br/><font color=""#ff0000"">NOVINKA</font>";299,00 Kè;Kè;27;TECH-IMPORT;;L;Èerná;;
+SKU-1040;PROFESIONÁLNÍ PÌNOVÁ MATRACE XL;"Odolnı materiál, snadná údrba.<br/><br/><font color=""#ff0000"">NOVINKA</font>";1.899,90;Kè;;TECH-IMPORT;;XL;Èerná;http://example.com/img/SKU-1040.png;9030796966035
+SKU-1041;ERGONOMICKÁ KANCELÁØSKÁ IDLE;<table><tr><td>Rozmìry: 20x30cm</td></tr></table><center>TOP PRODUKT</center>;799,00 Kè;CZK;;  DomoPlus  ;ELEKTRONIKA;S;Èerná;http://example.com/img/SKU-1041.png;
+SKU-1041;ERGONOMICKÁ KANCELÁØSKÁ IDLE;<table><tr><td>Rozmìry: 20x30cm</td></tr></table><center>TOP PRODUKT</center>;2.499,00 Kè;;skladem;  DomoPlus  ;ELEKTRONIKA;M;Èerná;https://example.com/img/SKU-1041.jpg;
+SKU-1042;BEZDRÁTOVÁ MYŠ USB-C 2.4GHZ;;99,50;Kè;27;Pøíbramská Vıroba;Sport & Outdoor;S;Èerná;;
+SKU-1042;BEZDRÁTOVÁ MYŠ USB-C 2.4GHZ;;99,00;Kè;12;Pøíbramská Vıroba;Sport & Outdoor;M;Èerná;http://example.com/img/SKU-1042.png;
+SKU-1042;BEZDRÁTOVÁ MYŠ USB-C 2.4GHZ;;2.499,00;CZK;0;Pøíbramská Vıroba;Sport & Outdoor;M;Šedá;;
+SKU-1042;BEZDRÁTOVÁ MYŠ USB-C 2.4GHZ;;Kè 1.899,00;Kè;;Pøíbramská Vıroba;Sport & Outdoor;L;Èerná;;
+SKU-1042;BEZDRÁTOVÁ MYŠ USB-C 2.4GHZ;;99,00;;0;Pøíbramská Vıroba;Sport & Outdoor;L;Šedá;https://example.com/img/SKU-1042.jpg;9357269649577
+SKU-1043;TERMOHRNEK NEREZ 750ML;"<font face=""Arial"" size=""2""><b>VİBORNÁ KVALITA</b></font><br><br>Skvìlı produkt pro kadou domácnost.";2499,90;;27;ïárské Textilie s.r.o.;;S;Èerná;http://example.com/img/SKU-1043.png;
+SKU-1043;TERMOHRNEK NEREZ 750ML;"<font face=""Arial"" size=""2""><b>VİBORNÁ KVALITA</b></font><br><br>Skvìlı produkt pro kadou domácnost.";799,00;CZK;12;ïárské Textilie s.r.o.;;S;Šedá;https://example.com/img/SKU-1043.jpg;
+SKU-1043;TERMOHRNEK NEREZ 750ML;"<font face=""Arial"" size=""2""><b>VİBORNÁ KVALITA</b></font><br><br>Skvìlı produkt pro kadou domácnost.";299,90;CZK;  5 ;ïárské Textilie s.r.o.;;M;Èerná;https://example.com/img/SKU-1043.jpg;4470079831106
+SKU-1043;TERMOHRNEK NEREZ 750ML;"<font face=""Arial"" size=""2""><b>VİBORNÁ KVALITA</b></font><br><br>Skvìlı produkt pro kadou domácnost.";Kè 99,90;;skladem;ïárské Textilie s.r.o.;;M;Šedá;https://example.com/img/SKU-1043.jpg;
+SKU-1043;TERMOHRNEK NEREZ 750ML;"<font face=""Arial"" size=""2""><b>VİBORNÁ KVALITA</b></font><br><br>Skvìlı produkt pro kadou domácnost.";399,00;CZK;12;ïárské Textilie s.r.o.;;L;Èerná;http://example.com/img/SKU-1043.png;4085729936422
+SKU-1043;TERMOHRNEK NEREZ 750ML;"<font face=""Arial"" size=""2""><b>VİBORNÁ KVALITA</b></font><br><br>Skvìlı produkt pro kadou domácnost.";799,50 Kè;CZK;skladem;ïárské Textilie s.r.o.;;L;Šedá;http://example.com/img/SKU-1043.png;
+SKU-1043;TERMOHRNEK NEREZ 750ML;"<font face=""Arial"" size=""2""><b>VİBORNÁ KVALITA</b></font><br><br>Skvìlı produkt pro kadou domácnost.";299,00 Kè;CZK;0;ïárské Textilie s.r.o.;;XL;Èerná;http://example.com/img/SKU-1043.png;
+SKU-1044;SPORTOVNÍ LÁHEV 500ML;"Odolnı materiál, snadná údrba.<br/><br/><font color=""#ff0000"">NOVINKA</font>";2499,00;CZK;  5 ;Pøíbramská Vıroba;Kuchynì;S;Èerná;http://example.com/img/SKU-1044.png;6415458802664
+SKU-1044;SPORTOVNÍ LÁHEV 500ML;"Odolnı materiál, snadná údrba.<br/><br/><font color=""#ff0000"">NOVINKA</font>";499,00;CZK;0;Pøíbramská Vıroba;Kuchynì;S;Šedá;https://example.com/img/SKU-1044.jpg;
+SKU-1044;SPORTOVNÍ LÁHEV 500ML;"Odolnı materiál, snadná údrba.<br/><br/><font color=""#ff0000"">NOVINKA</font>";Kè 299,00;CZK;;Pøíbramská Vıroba;Kuchynì;M;Èerná;http://example.com/img/SKU-1044.png;
+SKU-1044;SPORTOVNÍ LÁHEV 500ML;"Odolnı materiál, snadná údrba.<br/><br/><font color=""#ff0000"">NOVINKA</font>";Kè 149,50;CZK;27;Pøíbramská Vıroba;Kuchynì;M;Šedá;https://example.com/img/SKU-1044.jpg;1593186393160
+SKU-1044;SPORTOVNÍ LÁHEV 500ML;"Odolnı materiál, snadná údrba.<br/><br/><font color=""#ff0000"">NOVINKA</font>";799,50;Kè;;Pøíbramská Vıroba;Kuchynì;L;Èerná;http://example.com/img/SKU-1044.png;
+SKU-1044;SPORTOVNÍ LÁHEV 500ML;"Odolnı materiál, snadná údrba.<br/><br/><font color=""#ff0000"">NOVINKA</font>";1.899,90 Kè;CZK;skladem;Pøíbramská Vıroba;Kuchynì;XL;Èerná;;
+SKU-1045;LED STOLNÍ LAMPA S USB;POPIS NENÍ K DISPOZICI;2.499,50;;12;TECH-IMPORT;Dùm a zahrada;;;;
+SKU-1046;DÌTSKÁ ZIMNÍ BUNDA;"<font face=""Arial"" size=""2""><b>VİBORNÁ KVALITA</b></font><br><br>Skvìlı produkt pro kadou domácnost.";499,50;CZK;skladem;  DomoPlus  ;ELEKTRONIKA;S;Èerná;;
+SKU-1046;DÌTSKÁ ZIMNÍ BUNDA;"<font face=""Arial"" size=""2""><b>VİBORNÁ KVALITA</b></font><br><br>Skvìlı produkt pro kadou domácnost.";149,90;CZK;12;  DomoPlus  ;ELEKTRONIKA;M;Èerná;https://example.com/img/SKU-1046.jpg;9767022654407
+SKU-1046;DÌTSKÁ ZIMNÍ BUNDA;"<font face=""Arial"" size=""2""><b>VİBORNÁ KVALITA</b></font><br><br>Skvìlı produkt pro kadou domácnost.";149,90;Kè;27;  DomoPlus  ;ELEKTRONIKA;M;Šedá;;
+SKU-1047;PÁNSKÉ TRIÈKO BAVLNA;"<div><div><div style=""color:red"">AKÈNÍ NABÍDKA!!!</div></div></div><p>Rychlé dodání z našeho skladu.</p>";2.499,00 Kè;Kè;skladem;Pøíbramská Vıroba;Sport & Outdoor;;;https://example.com/img/SKU-1047.jpg;
+SKU-1048;DÁMSKÉ LEGÍNY SPORT;<table><tr><td>Rozmìry: 20x30cm</td></tr></table><center>TOP PRODUKT</center>;2.499,00;Kè;;£ÓD HURT SP. Z O.O.;Móda;;;https://example.com/img/SKU-1048.jpg;
+SKU-1049;KUCHYÒSKİ NÙ ŠEF 20CM;"Odolnı materiál, snadná údrba.<br/><br/><font color=""#ff0000"">NOVINKA</font>";499,00 Kè;CZK;0;Øíèany Wholesale;;S;Èerná;http://example.com/img/SKU-1049.png;7131161072087
+SKU-1049;KUCHYÒSKİ NÙ ŠEF 20CM;"Odolnı materiál, snadná údrba.<br/><br/><font color=""#ff0000"">NOVINKA</font>";199,50 Kè;;0;Øíèany Wholesale;;S;Šedá;http://example.com/img/SKU-1049.png;
+SKU-1049;KUCHYÒSKİ NÙ ŠEF 20CM;"Odolnı materiál, snadná údrba.<br/><br/><font color=""#ff0000"">NOVINKA</font>";1.299,00;;  5 ;Øíèany Wholesale;;M;Èerná;https://example.com/img/SKU-1049.jpg;5939671392322
+SKU-1049;KUCHYÒSKİ NÙ ŠEF 20CM;"Odolnı materiál, snadná údrba.<br/><br/><font color=""#ff0000"">NOVINKA</font>";399,90;CZK;27;Øíèany Wholesale;;M;Šedá;;
+SKU-1050;SADA HRNCÙ 5 DÍLÙ;"<span style=""font-family:Calibri"">PRO NÁROÈNÉ ZÁKAZNÍKY</span>&nbsp;&nbsp;Záruka 24 mìsícù.";2.499,00;CZK;27;  DomoPlus  ;;;;;8411598293158
+SKU-1051;BATOH NA NOTEBOOK 15.6;"Odolnı materiál, snadná údrba.<br/><br/><font color=""#ff0000"">NOVINKA</font>";1299,00;;  5 ;TECH-IMPORT;Sport & Outdoor;S;Èerná;http://example.com/img/SKU-1051.png;
+SKU-1051;BATOH NA NOTEBOOK 15.6;"Odolnı materiál, snadná údrba.<br/><br/><font color=""#ff0000"">NOVINKA</font>";1.299,00;Kè;  5 ;TECH-IMPORT;Sport & Outdoor;M;Èerná;http://example.com/img/SKU-1051.png;6770952090398
+SKU-1051;BATOH NA NOTEBOOK 15.6;"Odolnı materiál, snadná údrba.<br/><br/><font color=""#ff0000"">NOVINKA</font>";Kè 1.899,00;CZK;  5 ;TECH-IMPORT;Sport & Outdoor;M;Šedá;https://example.com/img/SKU-1051.jpg;
+SKU-1051;BATOH NA NOTEBOOK 15.6;"Odolnı materiál, snadná údrba.<br/><br/><font color=""#ff0000"">NOVINKA</font>";1.299,00;;27;TECH-IMPORT;Sport & Outdoor;L;Èerná;;
+SKU-1051;BATOH NA NOTEBOOK 15.6;"Odolnı materiál, snadná údrba.<br/><br/><font color=""#ff0000"">NOVINKA</font>";Kè 399,50;;12;TECH-IMPORT;Sport & Outdoor;XL;Èerná;https://example.com/img/SKU-1051.jpg;
+SKU-1051;BATOH NA NOTEBOOK 15.6;"Odolnı materiál, snadná údrba.<br/><br/><font color=""#ff0000"">NOVINKA</font>";Kè 799,00;;;TECH-IMPORT;Sport & Outdoor;XL;Šedá;https://example.com/img/SKU-1051.jpg;2920989224021
+SKU-1052;EHLIÈKA NA VLASY KERAMICKÁ;"<div><div><div style=""color:red"">AKÈNÍ NABÍDKA!!!</div></div></div><p>Rychlé dodání z našeho skladu.</p>";299,00 Kè;;skladem;£ÓD HURT SP. Z O.O.;ELEKTRONIKA;;;http://example.com/img/SKU-1052.png;
+SKU-1053;POKOJOVÁ ROSTLINA KAKTUS;"Odolnı materiál, snadná údrba.<br/><br/><font color=""#ff0000"">NOVINKA</font>";Kè 799,50;CZK;27;Pøíbramská Vıroba;Kuchynì;;;;
+SKU-1054;KOBEREC SHAGGY 160X230;"Odolnı materiál, snadná údrba.<br/><br/><font color=""#ff0000"">NOVINKA</font>";799,00 Kè;CZK;  5 ;ïárské Textilie s.r.o.;;;;http://example.com/img/SKU-1054.png;
+SKU-1055;POLŠTÁØ MEMORY FOAM;"<span style=""font-family:Calibri"">PRO NÁROÈNÉ ZÁKAZNÍKY</span>&nbsp;&nbsp;Záruka 24 mìsícù.";399,00;CZK;;TECH-IMPORT;Dùm a zahrada;S;Èerná;https://example.com/img/SKU-1055.jpg;
+SKU-1055;POLŠTÁØ MEMORY FOAM;"<span style=""font-family:Calibri"">PRO NÁROÈNÉ ZÁKAZNÍKY</span>&nbsp;&nbsp;Záruka 24 mìsícù.";299,90;CZK;0;TECH-IMPORT;Dùm a zahrada;S;Šedá;https://example.com/img/SKU-1055.jpg;
+SKU-1055;POLŠTÁØ MEMORY FOAM;"<span style=""font-family:Calibri"">PRO NÁROÈNÉ ZÁKAZNÍKY</span>&nbsp;&nbsp;Záruka 24 mìsícù.";Kè 399,00;CZK;skladem;TECH-IMPORT;Dùm a zahrada;M;Èerná;http://example.com/img/SKU-1055.png;
+SKU-1055;POLŠTÁØ MEMORY FOAM;"<span style=""font-family:Calibri"">PRO NÁROÈNÉ ZÁKAZNÍKY</span>&nbsp;&nbsp;Záruka 24 mìsícù.";1.899,00 Kè;;12;TECH-IMPORT;Dùm a zahrada;L;Èerná;http://example.com/img/SKU-1055.png;
+SKU-1055;POLŠTÁØ MEMORY FOAM;"<span style=""font-family:Calibri"">PRO NÁROÈNÉ ZÁKAZNÍKY</span>&nbsp;&nbsp;Záruka 24 mìsícù.";1.299,90;;12;TECH-IMPORT;Dùm a zahrada;L;Šedá;https://example.com/img/SKU-1055.jpg;
+SKU-1055;POLŠTÁØ MEMORY FOAM;"<span style=""font-family:Calibri"">PRO NÁROÈNÉ ZÁKAZNÍKY</span>&nbsp;&nbsp;Záruka 24 mìsícù.";2.499,90 Kè;;  5 ;TECH-IMPORT;Dùm a zahrada;XL;Èerná;https://example.com/img/SKU-1055.jpg;
+SKU-1056;OCHRANNÉ SKLO NA TELEFON;"<span style=""font-family:Calibri"">PRO NÁROÈNÉ ZÁKAZNÍKY</span>&nbsp;&nbsp;Záruka 24 mìsícù.";99,00;CZK;27;TECH-IMPORT;Móda;;;https://example.com/img/SKU-1056.jpg;

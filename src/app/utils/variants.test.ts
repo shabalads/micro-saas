@@ -24,7 +24,7 @@ describe("one handle per product, product-level fields only on the first row", (
 
   it("writes Option1/2 Name on the first row only and every variant's own values", () => {
     const { headers, records } = shopifyFile(tee);
-    expect(headers).toEqual(["Handle", "Title", "Body (HTML)", "Image Src", "Variant Price", "Variant SKU", "Option1 Name", "Option1 Value", "Option2 Name", "Option2 Value"]);
+    expect(headers).toEqual(["Handle", "Title", "Body (HTML)", "Image Src", "Image Position", "Variant Price", "Variant SKU", "Option1 Name", "Option1 Value", "Option2 Name", "Option2 Value", "Status"]);
     expect(records.map((record) => [record.Handle, record.Title, record["Option1 Name"], record["Option1 Value"], record["Option2 Name"], record["Option2 Value"], record["Variant SKU"], record["Variant Price"]])).toEqual([
       ["classic-tee", "Classic Tee", "Size", "S", "Color", "Navy Blue", "TEE-S", "19.90"],
       ["classic-tee", "", "", "M", "", "Navy Blue", "TEE-M", "19.90"],
@@ -53,17 +53,17 @@ describe("one handle per product, product-level fields only on the first row", (
 
   it("counts variants as variants, not as products", () => {
     const { report } = sanitizeDataset(tee);
-    expect(report).toMatchObject({ sourceRows: 3, productCount: 1, variantRows: 2, optionRows: 3, notices: [] });
+    expect(report).toMatchObject({ sourceRows: 3, productCount: 1, variantRows: 2, optionRows: 3, warnings: [] });
   });
 
   it("a file without options gets no option columns at all (the output is unchanged)", () => {
     const { headers } = shopifyFile([row({ title: "Mug", sku: "M-1" }), row({ title: "Cup", sku: "C-1" })]);
-    expect(headers).toEqual(["Handle", "Title", "Body (HTML)", "Image Src", "Variant Price", "Variant SKU"]);
+    expect(headers).toEqual(["Handle", "Title", "Body (HTML)", "Image Src", "Variant Price", "Variant SKU", "Status"]);
   });
 
   it("only the options that are used get columns", () => {
     const rows = sanitizeDataset([row({ title: "Rug", handle: "rug", options: [opt("Size", "Large"), opt("Color", "")] }), row({ handle: "rug", options: [opt("Size", "Small"), opt("Color", "")] })]).rows;
-    expect(shopifyColumnsFor(rows).map((column) => column.header)).toEqual(["Handle", "Title", "Body (HTML)", "Image Src", "Variant Price", "Variant SKU", "Option1 Name", "Option1 Value"]);
+    expect(shopifyColumnsFor(rows).map((column) => column.header)).toEqual(["Handle", "Title", "Body (HTML)", "Image Src", "Variant Price", "Variant SKU", "Option1 Name", "Option1 Value", "Status"]);
   });
 });
 
@@ -123,16 +123,27 @@ describe("attribute columns (a column headed 'Size') only become options when th
 });
 
 describe("what the tool cannot fix, it says", () => {
-  it("duplicate option combinations (Shopify: 'Option values are not unique')", () => {
+  const kinds = (report: { warnings: Array<{ kind: string }> }) => report.warnings.map((warning) => warning.kind);
+
+  it("duplicate option combinations (Shopify: 'Option values are not unique'), with the rows", () => {
     const { report } = sanitizeDataset([
       row({ title: "Tee", handle: "tee", options: [opt("Size", "M"), opt("Color", "Red")] }),
       row({ handle: "tee", options: [opt("Size", "L"), opt("Color", "Red")] }),
       row({ handle: "tee", options: [opt("Size", "m"), opt("Color", "red")] }),
     ]);
-    expect(report.notices).toHaveLength(1);
-    expect(report.notices[0]).toMatch(/1 variant repeats the option values of another variant/);
-    expect(report.notices[0]).toMatch(/row 3 repeats row 1: M \/ Red/);
-    expect(report.notices[0]).toMatch(/Option values are not unique/);
+    expect(kinds(report)).toEqual(["duplicate_variant"]);
+    const [warning] = report.warnings;
+    expect(warning).toMatchObject({ severity: "warning", count: 1, rows: [3], details: ["repeats row 1: M / Red"] });
+    expect(warning.message).toMatch(/1 variant repeats the option values of another variant/);
+    expect(warning.message).toMatch(/Option values are not unique/);
+  });
+
+  it("variants with no option values at all, under one product, are duplicates too: never exported silently", () => {
+    const { report } = sanitizeDataset([
+      row({ title: "Tee", handle: "tee", sku: "A" }),
+      row({ handle: "tee", sku: "B" }),
+    ]);
+    expect(report.warnings.find((warning) => warning.kind === "duplicate_variant")).toMatchObject({ count: 1, rows: [2], details: ["repeats row 1: (no option values)"] });
   });
 
   it("a variant with no value for an option its siblings have", () => {
@@ -141,7 +152,8 @@ describe("what the tool cannot fix, it says", () => {
       row({ handle: "tee", options: [opt("Size", "")] }),
       row({ handle: "tee", options: [opt("Size", "L")] }),
     ]);
-    expect(report.notices).toEqual([expect.stringMatching(/1 variant row has no value for "Size".*row 2/)]);
+    expect(kinds(report)).toEqual(["missing_option_value"]);
+    expect(report.warnings[0]).toMatchObject({ count: 1, rows: [2], details: ['no value for "Size"'] });
   });
 
   it("names the options on the first row even when that row has no value of its own, so the variants below are not nameless", () => {
@@ -151,16 +163,18 @@ describe("what the tool cannot fix, it says", () => {
     ]);
     expect(rows[0].Option1_Name).toBe("Size");
     expect(rows[1]).toMatchObject({ Option1_Name: "", Option1_Value: "L" });
-    expect(report.notices.join(" ")).toMatch(/no value for "Size"/);
+    expect(report.warnings.find((warning) => warning.kind === "missing_option_value")?.details).toEqual(['no value for "Size"']);
   });
 
-  it("variant rows that are not next to their product", () => {
-    const { report } = sanitizeDataset([
+  it("variant rows that are not next to their product are NOT merged into it: they become their own product, with a warning", () => {
+    const { rows, report } = sanitizeDataset([
       row({ title: "Tee", handle: "tee", options: [opt("Size", "S")] }),
       row({ title: "Hat", handle: "hat", options: [opt("Size", "S")] }),
       row({ handle: "tee", options: [opt("Size", "M")] }),
     ]);
-    expect(report.notices).toEqual([expect.stringMatching(/1 variant row is not next to the rest of its product \(for example row 3\).*sort the file by handle/)]);
+    expect(rows.map((entry) => entry.Handle)).toEqual(["tee", "hat", "tee-2"]);
+    expect(kinds(report)).toEqual(["split_product"]);
+    expect(report.warnings[0]).toMatchObject({ count: 1, rows: [3], details: ['handle "tee" again (first in row 1) is now tee-2'] });
   });
 
   it("an option that a later row calls something else: the first row's name wins, and it is mentioned", () => {
@@ -170,7 +184,9 @@ describe("what the tool cannot fix, it says", () => {
     ]);
     expect(rows[0].Option1_Name).toBe("Size");
     expect(rows[1].Option1_Name).toBe("");
-    expect(report.notices.join(" ")).toMatch(/names an option differently.*"Colour" in row 2, "Size"/);
+    expect(kinds(report)).toEqual(["option_name_conflict"]);
+    expect(report.warnings[0].message).toMatch(/names an option differently/);
+    expect(report.warnings[0]).toMatchObject({ rows: [2], details: ['"Colour" here, "Size" in row 1'] });
   });
 
   it("a clean multi-variant file raises nothing", () => {
@@ -179,7 +195,7 @@ describe("what the tool cannot fix, it says", () => {
       row({ handle: "tee", options: [opt("Size", "S"), opt("Color", "Blue")] }),
       row({ handle: "tee", options: [opt("Size", "M"), opt("Color", "Red")] }),
     ]);
-    expect(report.notices).toEqual([]);
+    expect(report.warnings).toEqual([]);
   });
 });
 

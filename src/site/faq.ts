@@ -23,7 +23,7 @@ export const FAQ: FaqItem[] = [
   {
     question: "What does it actually fix?",
     answer:
-      "ALL CAPS and all-lowercase product titles (acronyms such as USB-C and units such as 750ml are kept), legacy HTML in descriptions (font tags, inline styles, divs, Word and Excel leftovers), ALL CAPS descriptions, " +
+      "ALL CAPS and all-lowercase product titles (acronyms such as USB-C and units such as 750ml are kept; you can also choose sentence case or keep titles and vendors as supplied), legacy HTML in descriptions (font tags, inline styles, divs, Word and Excel leftovers), ALL CAPS descriptions, " +
       "missing or invalid handles, several image URLs crammed into one cell, prices written like $1,299.00 or 1 299,00 Kč, stray whitespace and hidden characters, and rows that repeat a handle for variants. " +
       "Variants get proper Option1, Option2 and Option3 Name and Value columns when your file has Option, Attribute, Size or Color columns, with one handle per product and the product-level fields only on its first row. " +
       "It also copes with the usual file problems: semicolon or tab separators, a byte-order mark, unclosed quotes, and files saved in an old Windows or ISO encoding instead of UTF-8.",
@@ -63,12 +63,12 @@ export const FAQ: FaqItem[] = [
   {
     question: "Which files can I upload?",
     answer:
-      "CSV, TSV or TXT files up to 25 MB, separated by commas, semicolons or tabs, encoded as UTF-8, UTF-16 or an older code page (Windows-1250, 1251 or 1252, ISO-8859-2 or ISO-8859-15). The encoding is detected for you and shown above the preview, with a menu to pick another one if the letters look wrong. Columns are recognised by name (title or name, description or body, images, price, SKU, handle, id, Option1 Name and Value, Size, Color and common variants of them), so you do not need to rename anything first.",
+      "CSV, TSV or TXT files up to 25 MB, separated by commas, semicolons or tabs, encoded as UTF-8, UTF-16 or an older code page (Windows-1250, 1251 or 1252, ISO-8859-2 or ISO-8859-15). The encoding is detected for you and shown above the preview, with a menu to pick another one if the letters look wrong. Columns are recognised by name (title or name, description or body, images, price, SKU or product code, handle, id, vendor or brand, category, tags, stock, EAN, currency, weight, Option1 Name and Value, Size, Color and common variants of them, in English, Czech, Slovak, Polish, German, French and Spanish), so you do not need to rename anything first.",
   },
   {
     question: "Will Shopify accept the result?",
     answer:
-      "The output uses Shopify's documented column names (Handle, Title, Body (HTML), Image Src, Variant Price, Variant SKU) with one image per row, plus Option1, Option2 and Option3 Name and Value when your file has variant columns. It does not create tags, inventory or other fields, so use it for the core product data and add the rest in Shopify. " +
+      "The output uses Shopify's documented column names (Handle, Title, Body (HTML), Image Src, Image Position, Variant Price, Variant SKU and Status) with one image per row, plus Vendor, Type (from your category), Tags, Variant Barcode, Variant Grams and Variant Inventory Tracker and Qty when your file has those columns, and Option1, Option2 and Option3 Name and Value when it has variant columns. Products arrive as drafts unless you tick \"Import as active\". It does not create compare-at prices, SEO fields or metafields, so add those in Shopify. " +
       "As with any import, try a small batch first and keep a backup of your store data.",
   },
 ];

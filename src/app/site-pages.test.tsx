@@ -20,6 +20,7 @@ import HomePage from "./(site)/page";
 import PrivacyPage from "./(site)/privacy/page";
 import RefundsPage from "./(site)/refunds/page";
 import TermsPage from "./(site)/terms/page";
+import SiteLayout from "./(site)/layout";
 import { SiteFooter } from "./components/site/site-footer";
 import { SiteHeader } from "./components/site/site-header";
 import { FREE_ROW_LIMIT, PRICE_LABEL } from "./utils/pricing";
@@ -160,6 +161,43 @@ describe("site chrome", () => {
     const footer = html(<SiteFooter />);
     for (const href of ["/privacy", "/terms", "/refunds", "/contact"]) expect(footer).toContain(`href="${href}"`);
     expect(text(footer)).toContain(COMPANY.brandName);
+  });
+});
+
+describe("site header (smart sticky)", () => {
+  const header = html(<SiteHeader />);
+  const links = ["/#how-it-works", "/#pricing", "/fix", "/#faq"];
+
+  it("is a sticky bar above the page content, animated with a transform and not with height or top", () => {
+    expect(header).toMatch(/<header[^>]*class="[^"]*\bsticky\b[^"]*\btop-0\b[^"]*\bz-40\b/);
+    expect(header).toContain("backdrop-blur");
+    expect(header).toContain("bg-neutral-950/70");
+    expect(header).toContain("transition-[transform,border-color]");
+    expect(header).toContain("duration-200");
+    expect(header).toContain("motion-reduce:transition-none");
+    expect(header).toContain("transform:translateY(0)");   // shown on first paint, before any script runs
+    expect(header).toContain('data-state="visible"');
+    expect(header).not.toMatch(/transition-(all|\[height|\[top)/);
+  });
+
+  it("keeps every link reachable on a phone: in the bar from md up, in the menu below it, and the menu starts closed", () => {
+    for (const href of links) expect(header.split(`href="${href}"`).length - 1, `${href} in the bar and in the menu`).toBe(2);
+    expect(header).toMatch(/<button[^>]*aria-expanded="false"[^>]*aria-controls="site-mobile-menu"|<button[^>]*aria-controls="site-mobile-menu"[^>]*aria-expanded="false"/);
+    expect(header).toMatch(/<div id="site-mobile-menu" class="hidden /);
+  });
+
+  it("sits in a frame that does not turn into a scroll container (overflow-x-hidden would stop the header sticking), scoped for the anchor offset", () => {
+    const frame = html(<SiteLayout>content</SiteLayout>);
+    expect(frame).toContain("site-frame");
+    expect(frame).toContain("overflow-x-clip");
+    expect(frame).not.toContain("overflow-x-hidden");
+    expect(frame).not.toMatch(/overflow-(y-)?(auto|scroll|hidden)/);
+  });
+
+  it("has a scroll-margin-top rule for headings and anchor targets, scoped to the site frame so /admin is untouched", () => {
+    const css = readFileSync(join(__dirname, "globals.css"), "utf8");
+    expect(css).toMatch(/\.site-frame :where\(h1, h2, h3, h4, h5, h6, \[id\]\)\s*\{\s*scroll-margin-top:\s*5rem;/);
+    expect(css.replace(/\/\*[\s\S]*?\*\//g, "")).not.toMatch(/(^|\})\s*(:where\()?(h[1-6]|\[id\])/m);   // no unscoped rule
   });
 });
 

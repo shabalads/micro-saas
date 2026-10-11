@@ -4,8 +4,15 @@ import type {
   CleanedShopifyRow,
   PreviewPair,
   RawSupplierRow,
+  SanitizeOptions,
   SanitizeReport,
+  SanitizeWarning,
+  SkuChange,
+  TitleCasing,
+  WarningKind,
 } from "../types/csv";
+import { checkBarcode, cleanTags, currencyCode, currencyInPrice, parseStock, parseWeight } from "./catalog-fields";
+import { isPlaceholderValue } from "./placeholder-values";
 
 /* -------------------------------------------------------------------------- */
 /*  Low-level helpers                                                          */
@@ -86,11 +93,9 @@ export function cleanWhitespace(input: string): string {
     .trim();
 }
 
-const PLACEHOLDER_RE = /^(n\/a|na|n\.a\.|null|nil|none|undefined|tbd|tba|-+|\.+|_+|#n\/a|#null!?)$/i;
-
-/** Suppliers love filling empty cells with "N/A", "null", "-" ... treat those as empty. */
+/** Suppliers love filling empty cells with "N/A", "null", "-", "popis není k dispozici" ... treat those as empty (the list is in placeholder-values.ts). */
 function emptyIfPlaceholder(value: string): string {
-  return PLACEHOLDER_RE.test(value.trim()) ? "" : value;
+  return isPlaceholderValue(value) ? "" : value;
 }
 
 function isLetter(ch: string): boolean {
@@ -244,25 +249,154 @@ function needsRecase(text: string): boolean {
   return upper + lower > 0 && (upper === 0 || lower === 0);
 }
 
-/** Converts text to professional Title Case (small words stay lower case, acronyms and units are preserved). */
+/* ---- company forms: "s.r.o.", "sp. z o.o.", "GmbH" are written one way, whatever the rest of the name looks like ---- */
+
+/**
+ * Legal forms of companies in the spelling that is conventional for each: lower case where that is the convention
+ * (s.r.o., a.s., sp. z o.o., e.K.), capitals where it is not (GmbH, S.A., B.V., LLC, Ltd). Title Case and sentence case
+ * both write them like this and never capitalize the words inside them ("sp. z o.o." keeps its "z"). Matched without
+ * regard to the case they arrive in, as whole words, so "as" in a title is not "a.s.". Add a form here to teach it.
+ */
+const LEGAL_FORMS: readonly string[] = [
+  // several words, matched as a whole so the connectors inside stay as they are
+  "sp. z o.o.", "sp. z o. o.", "spol. s r.o.", "spol. s r. o.", "s. r. o.", "a. s.", "sp. k.", "sp. j.", "GmbH & Co. KG",
+  // one word
+  "s.r.o.", "a.s.", "k.s.", "v.o.s.", "S.A.", "S.r.l.", "S.p.A.", "S.L.", "N.V.", "B.V.", "e.K.", "e.V.",
+  "GmbH", "AG", "Ltd", "Ltd.", "LLC", "Inc", "Inc.", "PLC",
+];
+
+const LEGAL_BY_KEY: ReadonlyMap<string, string> = new Map(LEGAL_FORMS.map((form) => [form.toLowerCase(), form]));
+const MAX_LEGAL_WORDS = Math.max(...LEGAL_FORMS.map((form) => form.split(" ").length));
+
+/**
+ * If the words from `start` on are a company form, the form's words as they are conventionally written (with any bracket
+ * or comma around it kept) and how many source words it covers.
+ */
+function legalFormAt(tokens: string[], start: number): { words: string[]; used: number } | null {
+  for (let length = Math.min(MAX_LEGAL_WORDS, tokens.length - start); length >= 1; length--) {
+    const joined = tokens.slice(start, start + length).join(" ");
+    const parts = /^([("'“‘[]*)(.*?)([,;:)"'”’\]]*)$/.exec(joined);
+    if (!parts) continue;
+    const form = LEGAL_BY_KEY.get(parts[2].toLowerCase());
+    if (form === undefined) continue;
+    const words = form.split(" ");
+    words[0] = parts[1] + words[0];
+    words[words.length - 1] += parts[3];
+    return { words, used: length };
+  }
+  return null;
+}
+
+/** Converts text to professional Title Case (small words stay lower case, acronyms, units and company forms are preserved). */
 export function toTitleCase(text: string): string {
   const tokens = text.split(" ");
   const lastIndex = tokens.length - 1;
-  return tokens
-    .map((token, index) => formatToken(token, index === 0 || index === lastIndex))
-    .join(" ");
+  const words: string[] = [];
+  for (let index = 0; index < tokens.length; ) {
+    const legal = legalFormAt(tokens, index);
+    if (legal) {
+      words.push(...legal.words);
+      index += legal.used;
+    } else {
+      words.push(formatToken(tokens[index], index === 0 || index === lastIndex));
+      index++;
+    }
+  }
+  return words.join(" ");
+}
+
+/* ---- sentence case: "Profesionální pěnová matrace XL" ---- */
+
+const hasUpper = (text: string): boolean => /\p{Lu}/u.test(text);
+const hasLower = (text: string): boolean => /\p{Ll}/u.test(text);
+/** "iPhone", "DomoPlus", "2.4GHz", "O'Brien": capitals inside the word that are not simply a capitalized "Word". */
+const isMixedCaseWord = (core: string): boolean => hasUpper(core) && hasLower(core) && !/^\p{Lu}\p{Ll}+$/u.test(core);
+
+/** One piece of a word (between hyphens). `lowered` says that it was an ordinary word and got lower case, so it may need its capital back. */
+function sentencePart(part: string, shouting: boolean): { text: string; lowered: boolean } {
+  const [prefix, core, suffix] = splitAffixes(part);
+  const kept = { text: part, lowered: false };
+  if (core === "") return kept;
+
+  let letters = 0;
+  let hasDigit = false;
+  for (const ch of core) {
+    if (isLetter(ch)) letters++;
+    else if (isDigit(ch)) hasDigit = true;
+  }
+  if (letters === 0) return kept; // numbers and symbols
+  if (isMixedCaseWord(core)) return kept; // typed with its own capitals: iPhone, DomoPlus, 2.4GHz
+
+  const lower = core.toLowerCase();
+  const brand = MIXED_CASE.get(lower);
+  if (brand !== undefined) return { text: prefix + brand + suffix, lowered: false };
+  if (letters === 1 && !hasDigit) return kept; // a size (M), a designator (the C of USB-C), a preposition (Czech "s"): not ours to guess
+  if (KEEP_UPPER.has(lower) || SIZE_RE.test(core) || INITIALISM_RE.test(core)) return { text: prefix + core.toUpperCase() + suffix, lowered: false };
+  const measurement = formatMeasurement(core);
+  if (measurement !== null) return { text: prefix + measurement + suffix, lowered: false };
+  if (ORDINAL_RE.test(core)) return { text: prefix + lower + suffix, lowered: false };
+  if (hasDigit) return { text: prefix + core.toUpperCase() + suffix, lowered: false }; // model codes: A4, RTX3080, 3D
+  // Capitals typed among lower case words are an acronym (NASA, HD); in a title that is all capitals nobody can tell, and the lists above decide.
+  if (!shouting && core.length >= 2 && core === core.toUpperCase()) return kept;
+  return { text: prefix + lower + suffix, lowered: true };
 }
 
 /**
- * Full title pipeline: strips markup and entities, removes rogue whitespace
- * and fixes ALL CAPS / all lower case titles. Already well-formed mixed-case
- * titles ("Blue T-Shirt", "iPhone Case") are left alone.
+ * Lower case everything except the first letter, acronyms, tokens with digits (750ml, USB-C, 2.4GHz), company forms and
+ * words that were already mixed-case. "PROFESIONÁLNÍ PĚNOVÁ MATRACE XL" becomes "Profesionální pěnová matrace XL".
  */
-export function normalizeTitle(input: string): string {
+export function toSentenceCaseTitle(text: string): string {
+  const shouting = hasUpper(text) && !hasLower(text);
+  const tokens = text.split(" ");
+  const words: string[] = [];
+  let first = true; // the first word that is not a company form gets the capital
+  for (let index = 0; index < tokens.length; ) {
+    const legal = legalFormAt(tokens, index);
+    if (legal) {
+      words.push(...legal.words);
+      index += legal.used;
+      continue;
+    }
+    const pieces = tokens[index].split(/([-/–—])/);
+    const results = pieces.map((piece, position) => (position % 2 === 1 ? { text: piece, lowered: false } : sentencePart(piece, shouting)));
+    // "T-Shirt" or "Wi-Fi" are one spelling, not two words: a known brand spelling for the whole token wins.
+    const whole = MIXED_CASE.get(tokens[index].toLowerCase().replace(/[-–—]/g, ""));
+    let token = whole !== undefined && pieces.length > 1 ? whole : results.map((result) => result.text).join("");
+    if (first && results[0].lowered) token = token.charAt(0).toUpperCase() + token.slice(1);
+    if (/\p{L}/u.test(token)) first = false;
+    words.push(token);
+    index++;
+  }
+  return words.join(" ");
+}
+
+/**
+ * Full title pipeline: strips markup and entities, removes rogue whitespace and applies the casing.
+ *  - "title" (default): ALL CAPS and all lower case titles become Title Case; well-formed mixed-case titles
+ *    ("Blue T-Shirt", "iPhone Case") are left alone.
+ *  - "sentence": every title is put in sentence case (see toSentenceCaseTitle).
+ *  - "keep": the case is as supplied.
+ */
+export function normalizeTitle(input: string, casing: TitleCasing = "title"): string {
   const withoutTags = input.replace(/<\/?[a-zA-Z][^>]*>/g, " ");
   const text = cleanWhitespace(decodeEntities(withoutTags));
-  if (text === "") return "";
+  if (text === "" || casing === "keep") return text;
+  if (casing === "sentence") return toSentenceCaseTitle(text);
   return needsRecase(text) ? toTitleCase(text) : text;
+}
+
+/** The first `count` different titles of a file, as supplied (cleaned of markup) and as they come out, to show what a casing does. */
+export function sampleTitleCasing(rawRows: RawSupplierRow[], casing: TitleCasing, count = 3): Array<{ before: string; after: string }> {
+  const samples: Array<{ before: string; after: string }> = [];
+  const seen = new Set<string>();
+  for (const raw of rawRows) {
+    const before = normalizeTitle(raw.title, "keep");
+    if (before === "" || seen.has(before)) continue;
+    seen.add(before);
+    samples.push({ before, after: normalizeTitle(raw.title, casing) });
+    if (samples.length === count) break;
+  }
+  return samples;
 }
 
 /* -------------------------------------------------------------------------- */
@@ -611,24 +745,33 @@ function normalizeImageUrl(candidate: string): string | null {
  * and are reported as dropped.
  */
 export function splitImageUrls(input: string): { urls: string[]; dropped: number } {
+  const { urls, dropped } = splitImageCell(input);
+  return { urls, dropped };
+}
+
+/** splitImageUrls, plus what it left out: the pieces that are not http(s) links, and the URLs repeated inside the cell. */
+export function splitImageCell(input: string): { urls: string[]; dropped: number; rejected: string[]; duplicates: number } {
   const source = emptyIfPlaceholder(decodeEntities(input)).trim();
-  if (source === "") return { urls: [], dropped: 0 };
+  if (source === "") return { urls: [], dropped: 0, rejected: [], duplicates: 0 };
 
   const seen = new Set<string>();
   const urls: string[] = [];
-  let dropped = 0;
+  const rejected: string[] = [];
+  let duplicates = 0;
 
   for (const piece of source.split(IMAGE_SPLIT_RE)) {
     if (piece.trim() === "") continue;
     const url = normalizeImageUrl(piece);
     if (url === null) {
-      dropped++;
+      rejected.push(piece.trim());
     } else if (!seen.has(url)) {
       seen.add(url);
       urls.push(url);
+    } else {
+      duplicates++;
     }
   }
-  return { urls, dropped };
+  return { urls, dropped: rejected.length, rejected, duplicates };
 }
 
 /* -------------------------------------------------------------------------- */
@@ -686,6 +829,9 @@ export function normalizeSku(input: string): string {
 
 const FALLBACK_TITLE = "Untitled Product";
 
+/** How many row numbers a warning lists. The count next to them is always the full count. */
+export const MAX_WARNING_ROWS = 10;
+
 function emptyShopifyRow(handle: string): CleanedShopifyRow {
   return {
     Handle: handle,
@@ -700,6 +846,15 @@ function emptyShopifyRow(handle: string): CleanedShopifyRow {
     Option2_Value: "",
     Option3_Name: "",
     Option3_Value: "",
+    Vendor: "",
+    Type: "",
+    Tags: "",
+    Status: "",
+    Variant_Grams: "",
+    Variant_Inventory_Tracker: "",
+    Variant_Inventory_Qty: "",
+    Variant_Barcode: "",
+    Image_Position: "",
   };
 }
 
@@ -707,13 +862,15 @@ function now(): number {
   return typeof performance !== "undefined" ? performance.now() : Date.now();
 }
 
+const plural = (count: number, one: string, many: string): string => (count === 1 ? one : many);
+const quoted = (text: string, max = 40): string => `"${text.length > max ? `${text.slice(0, max - 1)}…` : text}"`;
+
 /* -------------------------------------------------------------------------- */
 /*  Variant options (Option1/2/3 Name and Value)                               */
 /* -------------------------------------------------------------------------- */
 
 const OPTION_SLOTS = 3;
 const MAX_OPTION_LENGTH = 255;
-const EXAMPLES = 2;
 
 /** "NAVY BLUE" / "navy blue" become "Navy Blue", "XL" and "42" stay; placeholders such as "N/A" become empty. */
 export function cleanOptionValue(input: string): string {
@@ -736,51 +893,328 @@ function optionValuesOf(raw: RawSupplierRow): OptionTriple {
   return values;
 }
 
+/** Vendor and type: tidied like a title (cased as the casing says; the default fixes ALL CAPS and all lower case), markup and placeholders gone. */
+function cleanLabel(input: string | undefined, casing: TitleCasing = "title"): string {
+  return input === undefined ? "" : normalizeTitle(emptyIfPlaceholder(decodeEntities(input)), casing);
+}
+
+/* -------------------------------------------------------------------------- */
+/*  Which rows are one product                                                 */
+/* -------------------------------------------------------------------------- */
+
+/** A supplier row with the things that decide where it belongs worked out once. */
+interface PreparedRow {
+  /** 0-based position in the file. */
+  index: number;
+  /** Row number as the person sees it: 1-based, the header row not counted. */
+  number: number;
+  raw: RawSupplierRow;
+  /** The title as it will be written (cased by the person's choice). */
+  title: string;
+  /** The title in the default casing: what handles come from, so a handle never changes with the casing choice. */
+  baseTitle: string;
+  /** What titles are compared by: the default casing in lower case, so the casing choice never changes which rows belong together. */
+  titleKey: string;
+  suppliedHandle: string;
+  /** Cleaned option values for all three slots. Which slots are used is decided after a first look at the file. */
+  options: OptionTriple;
+  /** The SKU as cleaned from the file. */
+  sku: string;
+  /** What ties rows to one product, lower case, or "" when the file offers nothing of the kind (see skuIsProductCode). */
+  code: string;
+  /** The same code as the file wrote it, for messages. */
+  codeText: string;
+}
+
+interface Variant {
+  row: PreparedRow;
+  /** Option values of the slots in use (the others are empty). */
+  values: OptionTriple;
+}
+
+interface Product {
+  suppliedHandle: string;
+  title: string;
+  baseTitle: string;
+  titleKey: string;
+  code: string;
+  hasOptions: boolean;
+  variants: Variant[];
+  handle: string;
+  /**
+   * The product's first row has the same code as the different product right before it, so that code was copied down and
+   * says nothing about which product the row belongs to. The product's real code is the next row's.
+   */
+  codeUnreliable: boolean;
+  /** The product whose code was copied, for the message. */
+  copiedFrom: Product | null;
+  /** The option combinations the product has so far (lower case), so a row that adds a new one can be told from one that repeats. */
+  combinations: Set<string>;
+}
+
+function prepareRows(rawRows: RawSupplierRow[], casing: TitleCasing): PreparedRow[] {
+  const prepared: PreparedRow[] = rawRows.map((raw, index) => {
+    const baseTitle = normalizeTitle(raw.title);
+    return {
+      index,
+      number: index + 1,
+      raw,
+      title: casing === "title" ? baseTitle : normalizeTitle(raw.title, casing),
+      baseTitle,
+      titleKey: baseTitle.toLowerCase(),
+      suppliedHandle: raw.handle ? generateHandle(raw.handle) : "",
+      options: optionValuesOf(raw),
+      sku: normalizeSku(raw.sku),
+      code: "",
+      codeText: "",
+    };
+  });
+
+  if (rawRows.some((raw) => raw.productCode !== undefined)) {
+    for (const row of prepared) {
+      row.codeText = cleanWhitespace(emptyIfPlaceholder(decodeEntities(row.raw.productCode ?? "")));
+      row.code = row.codeText.toLowerCase();
+    }
+  } else if (skuIsProductCode(prepared)) {
+    for (const row of prepared) {
+      row.codeText = row.sku;
+      row.code = row.sku.toLowerCase();
+    }
+  }
+  return prepared;
+}
+
+/**
+ * Many supplier files have no separate product code: the "SKU" column holds one code per PRODUCT, repeated on every one of
+ * its variant rows. That is recognised when neighbouring rows with the same title mostly share the SKU. A file whose SKUs
+ * are different on every variant (SKU-RED-S, SKU-RED-M) is not read that way, or every variant would become a product.
+ */
+function skuIsProductCode(rows: PreparedRow[]): boolean {
+  let shared = 0;
+  let different = 0;
+  for (let i = 1; i < rows.length; i++) {
+    const before = rows[i - 1];
+    const row = rows[i];
+    if (row.titleKey === "" || before.titleKey !== row.titleKey || before.sku === "" || row.sku === "") continue;
+    if (before.sku.toLowerCase() === row.sku.toLowerCase()) shared++;
+    else different++;
+  }
+  return shared > 0 && shared >= different;
+}
+
+const titlesAgree = (product: Product, row: PreparedRow): boolean => row.titleKey === "" || product.titleKey === "" || row.titleKey === product.titleKey;
+
+const combinationOf = (values: OptionTriple): string => values.join("\u0001").toLowerCase();
+
+/**
+ * Does this row continue the product the previous rows form? Only the product directly before it is considered, so rows
+ * that are not next to each other can never be merged: the same title further down is a different product.
+ *  - a handle in the file names the product: the same handle and no contradicting title;
+ *  - otherwise the product code (when the file has one): the same code and no contradicting title. When the product's
+ *    own code is unreliable (copied from the product before it), the same title with an option combination the product
+ *    does not have yet is enough: two rows with the same options are two products, not one product twice;
+ *  - otherwise (no handle, no code): the same title next to each other, and only when the variants differ by an option.
+ */
+function continuesProduct(product: Product, row: PreparedRow, values: OptionTriple, rowHasOptions: boolean): boolean {
+  if (row.suppliedHandle !== "") return row.suppliedHandle === product.suppliedHandle && titlesAgree(product, row);
+  if (!titlesAgree(product, row)) return false;
+  if (product.code !== "" && row.code !== "") {
+    if (product.code === row.code) return true;
+    return product.codeUnreliable && product.titleKey !== "" && row.titleKey !== "" && rowHasOptions && !product.combinations.has(combinationOf(values));
+  }
+  return product.titleKey !== "" && row.titleKey !== "" && (rowHasOptions || product.hasOptions);
+}
+
+/** slots === null looks at every option column, to find out which of them are really options. */
+function groupProducts(rows: PreparedRow[], slots: boolean[] | null): Product[] {
+  const products: Product[] = [];
+  let current: Product | undefined;
+  for (const row of rows) {
+    const values = row.options.map((value, slot) => (slots === null || slots[slot] ? value : "")) as OptionTriple;
+    const rowHasOptions = values.some((value) => value !== "");
+    if (current !== undefined && continuesProduct(current, row, values, rowHasOptions)) {
+      current.variants.push({ row, values });
+      current.combinations.add(combinationOf(values));
+      current.hasOptions = current.hasOptions || rowHasOptions;
+      if (current.titleKey === "" && row.titleKey !== "") {
+        current.title = row.title;
+        current.baseTitle = row.baseTitle;
+        current.titleKey = row.titleKey;
+      }
+      if (current.code === "") current.code = row.code;
+      else if (current.codeUnreliable && row.code !== "") {
+        // The row below a copied code brings the product's real one.
+        current.code = row.code;
+        current.codeUnreliable = false;
+      }
+    } else {
+      // The same code as the different product right before it is a code that was copied down: it cannot be trusted to group by.
+      const copied = current !== undefined && row.suppliedHandle === "" && row.code !== "" && row.code === current.code;
+      current = {
+        suppliedHandle: row.suppliedHandle,
+        title: row.title,
+        baseTitle: row.baseTitle,
+        titleKey: row.titleKey,
+        code: row.code,
+        hasOptions: rowHasOptions,
+        variants: [{ row, values }],
+        handle: "",
+        codeUnreliable: copied,
+        copiedFrom: copied ? (current ?? null) : null,
+        combinations: new Set([combinationOf(values)]),
+      };
+      products.push(current);
+    }
+  }
+  return products;
+}
+
 /**
  * Which option slots end up in the output. A column from Option1 Value style headers is used as soon as any row has a
  * value. A plain attribute column ("Size", "Style") is used only if it tells variants of one product apart, i.e. some
  * product has rows with different values in it: otherwise it is a description of the product, not a variant option.
  */
-function chooseOptionSlots(rawRows: RawSupplierRow[]): boolean[] {
+function chooseOptionSlots(rows: PreparedRow[], products: Product[]): boolean[] {
   const inUse = [false, false, false];
   const derived = [false, false, false];
-  const groups = new Map<string, Array<Set<string>>>();
-
-  for (const raw of rawRows) {
-    if (!raw.options) continue;
-    const values = optionValuesOf(raw);
-    const handle = raw.handle ? generateHandle(raw.handle) : "";
-    const title = normalizeTitle(raw.title).toLowerCase();
-    const key = handle ? `h:${handle}` : title ? `t:${title}` : "";
-    for (let slot = 0; slot < OPTION_SLOTS; slot++) {
-      if (!raw.options[slot]) continue;
-      derived[slot] = raw.options[slot].derived;
-      if (values[slot] === "") continue;
-      if (!raw.options[slot].derived) inUse[slot] = true;
-      if (key === "") continue;
-      const sets = groups.get(key) ?? [new Set<string>(), new Set<string>(), new Set<string>()];
-      sets[slot].add(values[slot].toLowerCase());
-      groups.set(key, sets);
-    }
+  for (const row of rows) {
+    row.raw.options?.slice(0, OPTION_SLOTS).forEach((option, slot) => {
+      derived[slot] = option.derived;
+      if (!option.derived && row.options[slot] !== "") inUse[slot] = true;
+    });
   }
-  for (const sets of groups.values()) {
-    for (let slot = 0; slot < OPTION_SLOTS; slot++) if (derived[slot] && sets[slot].size >= 2) inUse[slot] = true;
+  for (const product of products) {
+    for (let slot = 0; slot < OPTION_SLOTS; slot++) {
+      if (!derived[slot] || inUse[slot]) continue;
+      const distinct = new Set(product.variants.map((variant) => variant.row.options[slot].toLowerCase()).filter((value) => value !== ""));
+      if (distinct.size >= 2) inUse[slot] = true;
+    }
   }
   return inUse;
 }
 
-/** One product's first row, which the later rows of the same product attach to. */
-interface ProductHead {
-  handle: string;
-  title: string;
-  /** Source row number (1-based) of each row of the product, and its option values, for the checks at the end. */
-  rows: Array<{ number: number; values: OptionTriple }>;
-  names: OptionTriple;
-  /** What the product is grouped by, for the message about rows that are not together. */
-  groupedBy: "handle" | "title";
-  lastSourceIndex: number;
-  /** Where the product's first row sits in the output, so its option names can be completed once all variants are known. */
-  outputIndex: number;
+/** Rows, the option slots in use and the products, in the one place that works them out. */
+function structureOf(rawRows: RawSupplierRow[], casing: TitleCasing = "title"): { prepared: PreparedRow[]; slots: boolean[]; products: Product[] } {
+  const prepared = prepareRows(rawRows, casing);
+  const slots = chooseOptionSlots(prepared, groupProducts(prepared, null));
+  return { prepared, slots, products: groupProducts(prepared, slots) };
+}
+
+/* -------------------------------------------------------------------------- */
+/*  SKUs                                                                       */
+/* -------------------------------------------------------------------------- */
+
+/** True when some product has several variants that all share one SKU: then the person almost certainly wants them told apart. */
+function variantsShareOneSku(products: Product[]): boolean {
+  return products.some((product) => {
+    if (product.variants.length < 2) return false;
+    const first = product.variants[0].row.sku.toLowerCase();
+    return first !== "" && product.variants.every((variant) => variant.row.sku.toLowerCase() === first);
+  });
+}
+
+/**
+ * Whether "Make SKUs unique per variant" should start switched on for this file: when the variants of a product all share
+ * one SKU (SKU-1001 on every size and colour). Looks only at how the rows group, never at the cleaned output.
+ */
+export function suggestUniqueSkus(rawRows: RawSupplierRow[]): boolean {
+  return variantsShareOneSku(structureOf(rawRows).products);
+}
+
+/** The options a file starts with: SKUs made unique when its variants share one, products as drafts, titles in Title Case. */
+export function defaultSanitizeOptions(rawRows: RawSupplierRow[]): SanitizeOptions {
+  return { uniqueSkus: suggestUniqueSkus(rawRows), status: "draft", casing: "title" };
+}
+
+const CASINGS: readonly TitleCasing[] = ["title", "sentence", "keep"];
+
+/**
+ * `defaults` with whatever of `saved` is valid laid over it. A file parked before the tool had an option (or by a build
+ * that did not know it) comes back with that option missing: it gets the default instead of breaking.
+ */
+export function mergeSanitizeOptions(defaults: SanitizeOptions, saved?: Partial<SanitizeOptions> | null): SanitizeOptions {
+  return {
+    uniqueSkus: typeof saved?.uniqueSkus === "boolean" ? saved.uniqueSkus : defaults.uniqueSkus,
+    status: saved?.status === "active" || saved?.status === "draft" ? saved.status : defaults.status,
+    casing: saved?.casing !== undefined && CASINGS.includes(saved.casing) ? saved.casing : defaults.casing,
+  };
+}
+
+/** "Černá" -> "CERNA", "Navy Blue" -> "NAVY-BLUE": what is appended to a SKU to tell a variant from its siblings. */
+function skuSuffix(values: OptionTriple, slots: boolean[]): string {
+  return values
+    .filter((_, slot) => slots[slot])
+    .map((value) => generateHandle(value).toUpperCase())
+    .filter((part) => part !== "")
+    .join("-");
+}
+
+/**
+ * The SKU to write for every source row. Unchanged unless uniqueSkus is on: then the variants of a product that share a
+ * SKU each get their option values appended, and any SKU that is still used twice anywhere in the file gets -2, -3 ...
+ */
+function resolveSkus(products: Product[], slots: boolean[], uniqueSkus: boolean, rowCount: number): { skus: string[]; changes: SkuChange[] } {
+  const skus: string[] = new Array(rowCount).fill("");
+  for (const product of products) for (const { row } of product.variants) skus[row.index] = row.sku;
+  if (!uniqueSkus) return { skus, changes: [] };
+
+  for (const product of products) {
+    const byKey = new Map<string, Variant[]>();
+    for (const variant of product.variants) {
+      if (variant.row.sku === "") continue;
+      const key = variant.row.sku.toLowerCase();
+      byKey.set(key, [...(byKey.get(key) ?? []), variant]);
+    }
+    for (const group of byKey.values()) {
+      if (group.length < 2) continue;
+      for (const variant of group) {
+        const suffix = skuSuffix(variant.values, slots);
+        if (suffix !== "") skus[variant.row.index] = `${variant.row.sku}-${suffix}`;
+      }
+    }
+  }
+
+  const used = new Set<string>();
+  for (const product of products) {
+    for (const { row } of product.variants) {
+      const sku = skus[row.index];
+      if (sku === "") continue;
+      let candidate = sku;
+      for (let counter = 2; used.has(candidate.toLowerCase()); counter++) candidate = `${sku}-${counter}`;
+      used.add(candidate.toLowerCase());
+      skus[row.index] = candidate;
+    }
+  }
+
+  const changes: SkuChange[] = [];
+  for (const product of products) {
+    for (const { row } of product.variants) if (skus[row.index] !== row.sku) changes.push({ row: row.number, from: row.sku, to: skus[row.index] });
+  }
+  changes.sort((a, b) => a.row - b.row);
+  return { skus, changes };
+}
+
+/* -------------------------------------------------------------------------- */
+/*  Collecting what is worth telling the person                                */
+/* -------------------------------------------------------------------------- */
+
+/** Per kind of problem: how many rows, which (the first MAX_WARNING_ROWS) and one line about each of those. */
+class Findings {
+  private readonly groups = new Map<WarningKind, { count: number; rows: number[]; details: string[] }>();
+
+  add(kind: WarningKind, row: number, detail = ""): void {
+    const group = this.groups.get(kind) ?? { count: 0, rows: [], details: [] };
+    group.count++;
+    if (group.rows.length < MAX_WARNING_ROWS) {
+      group.rows.push(row);
+      group.details.push(detail);
+    }
+    this.groups.set(kind, group);
+  }
+
+  get(kind: WarningKind): { count: number; rows: number[]; details: string[] } | undefined {
+    return this.groups.get(kind);
+  }
 }
 
 export interface SanitizeResult {
@@ -793,31 +1227,31 @@ export interface SanitizeResult {
 /**
  * Cleans every supplier row and flattens the result into Shopify import rows.
  *
- * - A product with N images becomes N rows: the first carries the product data, the others only `Handle` + `Image_Src`.
- * - Multi-row variants: when the supplier file repeats a handle (the usual Shopify layout, one row per variant), the
- *   later rows are variants of the first row's product. They keep that handle (never "-2"), carry no Title or
- *   Body of their own, and keep their own price, SKU, option values and images. A repeated handle with a *different*
- *   title is a different product that happens to collide, so it still gets a unique handle. Without a handle column,
- *   rows with the same title and option values are variants of one product too.
- * - Options: Option1/2/3 Name and Value. The names are product-level, so they appear only on a product's first row;
- *   every variant row has its own values.
+ * Products. Rows are grouped by what the file offers, and only ever with the rows right next to them:
+ *  - a handle column: the same handle in a row of the same product;
+ *  - a product-code column (or a SKU column that variants share, see skuIsProductCode): the same code with the same title;
+ *  - neither: the same title next to each other, when the variants differ by an option value.
+ * The same title anywhere else (another product code, or not next to the product) is a separate product with its own handle
+ * (the second gets -2, the third -3) and a warning. A later row is never merged into an earlier, non-adjacent product.
+ *
+ * Output. A product with N images becomes N rows: the first carries the product data, the others only Handle, Image Src and
+ * Image Position. Vendor, Type, Tags, Status and the option names are product-level, so they are on the first row only; each
+ * variant row has its own option values, price, SKU, barcode, weight and stock. Images are written once per product and
+ * numbered 1, 2, 3 in the order they appear.
+ *
+ * Nothing the file says is dropped without being counted: every row that lost something (a stock like "skladem", an invalid
+ * EAN, a link that is not http(s), a placeholder description) is listed in report.warnings.
  */
-export function sanitizeDataset(rawRows: RawSupplierRow[]): SanitizeResult {
+export function sanitizeDataset(rawRows: RawSupplierRow[], requested: Partial<SanitizeOptions> = {}): SanitizeResult {
   const startedAt = now();
-  const usedHandles = new Map<string, number>();
-  const productHeads = new Map<string, ProductHead>();
-  const rows: CleanedShopifyRow[] = [];
-  const rowStarts: number[] = [];
-  const slots = chooseOptionSlots(rawRows);
-  let nameConflicts = 0;
-  let nameConflictExample = "";
-  let apart = 0;
-  let apartExample = 0;
-  let apartBy: "handle" | "title" = "handle";
+  const casing = mergeSanitizeOptions({ uniqueSkus: false, status: "draft", casing: "title" }, requested).casing;
+  const { prepared, slots, products } = structureOf(rawRows, casing);
+  const options = mergeSanitizeOptions({ uniqueSkus: variantsShareOneSku(products), status: "draft", casing }, requested);
+  const findings = new Findings();
 
   const report: SanitizeReport = {
     sourceRows: rawRows.length,
-    productCount: 0,
+    productCount: products.length,
     variantRows: 0,
     outputRowCount: 0,
     titlesFixed: 0,
@@ -828,195 +1262,362 @@ export function sanitizeDataset(rawRows: RawSupplierRow[]): SanitizeResult {
     imageCellsSplit: 0,
     extraImageRows: 0,
     invalidImagesDropped: 0,
+    duplicateImagesRemoved: 0,
     optionRows: 0,
-    notices: [],
+    warnings: [],
+    skuChanges: [],
+    options,
     processingMs: 0,
   };
 
-  rawRows.forEach((raw, index) => {
-    rowStarts.push(rows.length);
+  /* ---- handles: one per product, the same title again gets -2, -3 ---- */
+  const usedHandles = new Map<string, number>();
+  const firstProductWithTitle = new Map<string, Product>();
+  const firstProductWithHandle = new Map<string, Product>();
+  for (const product of products) {
+    const first = product.variants[0].row;
+    // From the title in the default casing, so that a handle (a URL) never changes because the person chose another casing.
+    const baseHandle = product.suppliedHandle || generateHandle(product.baseTitle) || generateHandle(first.sku) || generateHandle(first.raw.id) || `product-${first.number}`;
+    if (product.suppliedHandle === "") report.handlesGenerated++;
+    product.handle = reserveUniqueHandle(baseHandle, usedHandles);
+    if (product.handle !== baseHandle) report.duplicateHandlesResolved++;
 
-    const suppliedHandle = raw.handle ? generateHandle(raw.handle) : "";
-    const cleanedTitle = normalizeTitle(raw.title);
-    const values = optionValuesOf(raw).map((value, slot) => (slots[slot] ? value : "")) as OptionTriple;
-    const hasOptions = values.some((value) => value !== "");
-    if (hasOptions) report.optionRows++;
-
-    // What ties rows to one product: a supplied handle, or (without one) the same title on rows that carry option values.
-    const groupKey = suppliedHandle ? `h:${suppliedHandle}` : hasOptions && cleanedTitle !== "" ? `t:${cleanedTitle.toLowerCase()}` : "";
-    const head = groupKey ? productHeads.get(groupKey) : undefined;
-    const isVariant = head !== undefined && (suppliedHandle === "" || cleanedTitle === "" || cleanedTitle === head.title);
-
-    const title = isVariant ? "" : cleanedTitle || FALLBACK_TITLE;
-    if (!isVariant && title !== raw.title) report.titlesFixed++;
-
-    const body = isVariant ? "" : cleanDescription(raw.description);
-    if (!isVariant && raw.description.trim() !== "" && body !== raw.description) report.descriptionsCleaned++;
-
-    const price = normalizePrice(raw.price);
-    if (raw.price.trim() !== "" && price !== raw.price) report.pricesNormalized++;
-
-    const sku = normalizeSku(raw.sku);
-    const { urls, dropped } = splitImageUrls(raw.images);
-    report.invalidImagesDropped += dropped;
-    if (urls.length > 1) {
-      report.imageCellsSplit++;
-      report.extraImageRows += urls.length - 1;
+    // The same title (or, for a file with a handle column, the same handle) again, anywhere but right next to its product: a
+    // separate product, said out loud, never a silent merge into the earlier one.
+    const sameTitle = product.titleKey === "" ? undefined : firstProductWithTitle.get(product.titleKey);
+    const sameHandle = product.suppliedHandle === "" ? undefined : firstProductWithHandle.get(product.suppliedHandle);
+    if (sameTitle !== undefined) {
+      findings.add("split_product", first.number, `${quoted(product.title)} again (first in row ${sameTitle.variants[0].row.number}) is now ${product.handle}`);
+    } else if (sameHandle !== undefined) {
+      findings.add("split_product", first.number, `handle ${quoted(product.suppliedHandle)} again (first in row ${sameHandle.variants[0].row.number}) is now ${product.handle}`);
     }
+    if (product.titleKey !== "" && sameTitle === undefined) firstProductWithTitle.set(product.titleKey, product);
+    if (product.suppliedHandle !== "" && sameHandle === undefined) firstProductWithHandle.set(product.suppliedHandle, product);
+  }
 
-    let handle: string;
-    let names: OptionTriple = ["", "", ""];
-    if (head !== undefined && isVariant) {
-      handle = head.handle;
-      report.variantRows++;
-      head.rows.push({ number: index + 1, values });
-      if (head.lastSourceIndex !== index - 1) {
-        apart++;
-        apartBy = head.groupedBy;
-        if (apartExample === 0) apartExample = index + 1;
-      }
-      head.lastSourceIndex = index;
-      // The first row names the options. A later row that calls one something else is outvoted.
-      for (let slot = 0; slot < OPTION_SLOTS; slot++) {
-        const theirs = slots[slot] && raw.options?.[slot] ? cleanOptionName(raw.options[slot].name) : "";
-        if (theirs !== "" && head.names[slot] !== "" && theirs.toLowerCase() !== head.names[slot].toLowerCase() && values[slot] !== "") {
-          nameConflicts++;
-          if (nameConflictExample === "") nameConflictExample = `"${theirs}" in row ${index + 1}, "${head.names[slot]}" in the product's first row`;
-        }
-      }
-    } else {
-      const baseHandle =
-        suppliedHandle ||
-        generateHandle(title === FALLBACK_TITLE ? "" : title) ||
-        generateHandle(sku) ||
-        generateHandle(raw.id) ||
-        `product-${index + 1}`;
-      if (suppliedHandle === "") report.handlesGenerated++;
+  /* ---- codes that were copied down from the product before ---- */
+  for (const product of products) {
+    if (product.copiedFrom === null) continue;
+    const first = product.variants[0].row;
+    const above = product.copiedFrom;
+    const outcome = product.variants.length > 1 ? `grouped with the ${(product.variants.length - 1).toLocaleString()} ${plural(product.variants.length - 1, "row", "rows")} below it` : "kept as its own product";
+    findings.add("sku_copied", first.number, `${first.codeText} is also the code of ${quoted(above.title)} above (row ${above.variants[0].row.number}); ${outcome}`);
+  }
 
-      handle = reserveUniqueHandle(baseHandle, usedHandles);
-      if (handle !== baseHandle) report.duplicateHandlesResolved++;
+  /* ---- SKUs ---- */
+  const skuSeenIn = new Map<string, { product: Product; row: number }>();
+  for (const product of products) {
+    const inProduct = new Map<string, number>();
+    for (const { row } of product.variants) {
+      if (row.sku === "") continue;
+      const key = row.sku.toLowerCase();
+      const earlierInProduct = inProduct.get(key);
+      if (earlierInProduct !== undefined) findings.add("duplicate_sku_in_product", row.number, `${row.sku} (also in row ${earlierInProduct})`);
+      else inProduct.set(key, row.number);
 
-      const firstNames: OptionTriple = ["", "", ""];
-      for (let slot = 0; slot < OPTION_SLOTS; slot++) {
-        if (slots[slot] && raw.options?.[slot]) firstNames[slot] = cleanOptionName(raw.options[slot].name);
-      }
-      names = firstNames;
-      if (groupKey !== "" && !productHeads.has(groupKey)) {
-        productHeads.set(groupKey, {
-          handle,
-          title,
-          rows: [{ number: index + 1, values }],
-          names: firstNames,
-          groupedBy: suppliedHandle ? "handle" : "title",
-          lastSourceIndex: index,
-          outputIndex: rows.length,
-        });
-      }
+      const elsewhere = skuSeenIn.get(key);
+      if (elsewhere === undefined) skuSeenIn.set(key, { product, row: row.number });
+      else if (elsewhere.product !== product) findings.add("duplicate_sku_across_products", row.number, `${row.sku} (first used in row ${elsewhere.row})`);
     }
+  }
+  const { skus, changes } = resolveSkus(products, slots, options.uniqueSkus, rawRows.length);
+  report.skuChanges = changes;
+  for (const change of changes) findings.add("sku_changed", change.row, `${change.from} -> ${change.to}`);
 
-    const row = emptyShopifyRow(handle);
-    row.Title = title;
-    row.Body_HTML = body;
-    row.Image_Src = urls.length > 0 ? urls[0] : "";
-    row.Variant_Price = price;
-    row.Variant_SKU = sku;
-    row.Option1_Value = values[0];
-    row.Option2_Value = values[1];
-    row.Option3_Value = values[2];
-    // Names are product-level: first row only, and only for options this row (or product) actually has a value for.
-    if (!isVariant) {
-      row.Option1_Name = values[0] !== "" ? names[0] : "";
-      row.Option2_Name = values[1] !== "" ? names[1] : "";
-      row.Option3_Name = values[2] !== "" ? names[2] : "";
-    }
-    rows.push(row);
-
-    for (let i = 1; i < urls.length; i++) {
-      const imageRow = emptyShopifyRow(handle);
-      imageRow.Image_Src = urls[i];
-      rows.push(imageRow);
-    }
-  });
-
-  // A product's first row names the options even when that row's own value is empty, so the variants below it are not left
-  // with values for an option that has no name (the empty value itself is reported in the notices).
-  for (const head of productHeads.values()) {
-    for (let slot = 0; slot < OPTION_SLOTS; slot++) {
-      const key = `Option${slot + 1}_Name` as "Option1_Name" | "Option2_Name" | "Option3_Name";
-      if (slots[slot] && rows[head.outputIndex][key] === "" && head.rows.some((entry) => entry.values[slot] !== "")) {
-        rows[head.outputIndex][key] = head.names[slot] || `Option ${slot + 1}`;
-      }
+  /* ---- currency (not written to the file, but a file must not mix them) ---- */
+  // A row's currency comes from the Currency column and from a symbol in its price. When they disagree the row names both.
+  const currenciesOfRow: string[][] = [];
+  const currencyCounts = new Map<string, number>();
+  for (const row of prepared) {
+    const inPrice = currencyInPrice(row.raw.price);
+    if (inPrice !== "") findings.add("currency_symbol_in_price", row.number, row.raw.price.trim());
+    const inColumn = row.raw.currency === undefined ? "" : currencyCode(row.raw.currency);
+    const named = [...new Set([inColumn, inPrice].filter((code) => code !== ""))];
+    currenciesOfRow.push(named);
+    for (const code of named) currencyCounts.set(code, (currencyCounts.get(code) ?? 0) + 1);
+  }
+  if (currencyCounts.size > 1) {
+    const dominant = [...currencyCounts.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))[0][0];
+    for (const row of prepared) {
+      const others = currenciesOfRow[row.index].filter((code) => code !== dominant);
+      if (others.length > 0) findings.add("mixed_currencies", row.number, `${others.join(", ")} (most rows are ${dominant})`);
     }
   }
 
-  report.notices = variantNotices([...productHeads.values()], slots, { apart, apartExample, apartBy, nameConflicts, nameConflictExample });
-  report.productCount = rawRows.length - report.variantRows;
+  /* ---- placeholder descriptions ---- */
+  for (const row of prepared) {
+    if (row.raw.description.trim() !== "" && isPlaceholderValue(row.raw.description)) {
+      findings.add("placeholder_description", row.number, quoted(cleanWhitespace(decodeEntities(row.raw.description.replace(/<[^>]*>/g, " ")))));
+    }
+  }
+
+  /* ---- write the rows ---- */
+  const rows: CleanedShopifyRow[] = [];
+  const rowStarts: number[] = [];
+
+  for (const product of products) {
+    const handle = product.handle;
+    const first = product.variants[0].row;
+    const title = product.title || FALLBACK_TITLE;
+    if (title !== first.raw.title) report.titlesFixed++;
+    report.variantRows += product.variants.length - 1;
+
+    // Product-level fields come from the first row that has them, so a placeholder on the first variant does not hide a real value on the next.
+    let body = "";
+    let bodySource = first;
+    for (const { row } of product.variants) {
+      const cleaned = cleanDescription(row.raw.description);
+      if (cleaned !== "") {
+        body = cleaned;
+        bodySource = row;
+        break;
+      }
+    }
+    if (bodySource.raw.description.trim() !== "" && body !== bodySource.raw.description) report.descriptionsCleaned++;
+    const vendor = product.variants.map(({ row }) => cleanLabel(row.raw.vendor, options.casing)).find((value) => value !== "") ?? "";
+    const type = product.variants.map(({ row }) => cleanLabel(row.raw.category)).find((value) => value !== "") ?? "";
+    const tags = cleanTags(product.variants.map(({ row }) => row.raw.tags ?? "").join(","));
+
+    // Option names belong to the product: the first row names them, and a later row that calls one something else is outvoted.
+    const names: OptionTriple = ["", "", ""];
+    for (let slot = 0; slot < OPTION_SLOTS; slot++) {
+      if (slots[slot] && first.raw.options?.[slot]) names[slot] = cleanOptionName(first.raw.options[slot].name);
+    }
+    const namedSlots = [0, 1, 2].map((slot) => slots[slot] && product.variants.some((variant) => variant.values[slot] !== ""));
+
+    const seenImages = new Set<string>();
+    let position = 0;
+    const combinations = new Map<string, number>();
+
+    product.variants.forEach((variant, variantIndex) => {
+      const { row: source, values } = variant;
+      const raw = source.raw;
+      rowStarts.push(rows.length);
+
+      const out = emptyShopifyRow(handle);
+      if (variantIndex === 0) {
+        out.Title = title;
+        out.Body_HTML = body;
+        out.Vendor = vendor;
+        out.Type = type;
+        out.Tags = tags;
+        out.Status = options.status;
+        out.Option1_Name = namedSlots[0] ? names[0] || "Option 1" : "";
+        out.Option2_Name = namedSlots[1] ? names[1] || "Option 2" : "";
+        out.Option3_Name = namedSlots[2] ? names[2] || "Option 3" : "";
+      }
+      out.Option1_Value = values[0];
+      out.Option2_Value = values[1];
+      out.Option3_Value = values[2];
+      if (values.some((value) => value !== "")) report.optionRows++;
+
+      const price = normalizePrice(raw.price);
+      if (raw.price.trim() !== "" && price !== raw.price) report.pricesNormalized++;
+      out.Variant_Price = price;
+      out.Variant_SKU = skus[source.index];
+
+      if (raw.stock !== undefined) {
+        const stock = parseStock(raw.stock);
+        if (stock.quantity !== null) {
+          out.Variant_Inventory_Qty = String(stock.quantity);
+          out.Variant_Inventory_Tracker = "shopify";
+        } else {
+          findings.add("non_numeric_stock", source.number, stock.problem === "blank" ? "(blank)" : quoted(cleanWhitespace(raw.stock)));
+        }
+      }
+      if (raw.barcode !== undefined) {
+        const barcode = checkBarcode(raw.barcode);
+        if (barcode.status === "valid") {
+          out.Variant_Barcode = barcode.barcode;
+          // Written as supplied (the length is right and it may well be the real code), but a wrong last digit is usually a typo.
+          if (barcode.expectedCheckDigit !== null) findings.add("ean_check_digit", source.number, `${barcode.barcode} (the last digit should be ${barcode.expectedCheckDigit})`);
+        } else if (barcode.status === "invalid") findings.add("invalid_ean", source.number, quoted(barcode.shown));
+      }
+      if (raw.weight !== undefined) {
+        const weight = parseWeight(raw.weight, raw.weightUnit ?? "");
+        if (weight.grams !== null) out.Variant_Grams = String(weight.grams);
+        if (weight.invalid) findings.add("invalid_weight", source.number, quoted(cleanWhitespace(raw.weight)));
+        else if (weight.assumedGrams && weight.grams !== null) findings.add("weight_unit_assumed", source.number, `${cleanWhitespace(raw.weight)} read as ${weight.grams} g`);
+      }
+
+      // Images: written once per product, numbered in order. The first goes on this variant's row, the rest on image-only rows.
+      const cell = splitImageCell(raw.images);
+      report.invalidImagesDropped += cell.dropped;
+      report.duplicateImagesRemoved += cell.duplicates;
+      if (cell.rejected.length > 0) findings.add("invalid_image_url", source.number, quoted(cell.rejected[0], 60));
+      if (cell.urls.length > 1) report.imageCellsSplit++;
+      const fresh = cell.urls.filter((url) => !seenImages.has(url));
+      report.duplicateImagesRemoved += cell.urls.length - fresh.length;
+      for (const url of fresh) seenImages.add(url);
+      if (fresh.length > 0) {
+        out.Image_Src = fresh[0];
+        out.Image_Position = String(++position);
+      }
+      rows.push(out);
+      for (let i = 1; i < fresh.length; i++) {
+        const imageRow = emptyShopifyRow(handle);
+        imageRow.Image_Src = fresh[i];
+        imageRow.Image_Position = String(++position);
+        rows.push(imageRow);
+        report.extraImageRows++;
+      }
+
+      // What Shopify rejects and this tool cannot decide for the person.
+      if (product.variants.length > 1) {
+        const combination = values.filter((_, slot) => slots[slot]).join(" / ");
+        const key = combination.toLowerCase();
+        const earlier = combinations.get(key);
+        if (earlier === undefined) combinations.set(key, source.number);
+        else findings.add("duplicate_variant", source.number, `repeats row ${earlier}: ${combination === "" ? "(no option values)" : combination}`);
+
+        const missing: string[] = [];
+        for (let slot = 0; slot < OPTION_SLOTS; slot++) {
+          if (slots[slot] && values[slot] === "" && namedSlots[slot]) missing.push(`"${names[slot] || `Option ${slot + 1}`}"`);
+        }
+        if (missing.length > 0) findings.add("missing_option_value", source.number, `no value for ${missing.join(", ")}`);
+
+        if (variantIndex > 0) {
+          for (let slot = 0; slot < OPTION_SLOTS; slot++) {
+            const theirs = slots[slot] && raw.options?.[slot] ? cleanOptionName(raw.options[slot].name) : "";
+            if (theirs !== "" && names[slot] !== "" && theirs.toLowerCase() !== names[slot].toLowerCase() && values[slot] !== "") {
+              findings.add("option_name_conflict", source.number, `"${theirs}" here, "${names[slot]}" in row ${first.number}`);
+            }
+          }
+        }
+      }
+    });
+  }
+
+  report.warnings = buildWarnings(findings, options, [...new Set(currencyCounts.keys())].sort());
   report.outputRowCount = rows.length;
   report.processingMs = Math.max(1, Math.round(now() - startedAt));
   return { rows, report, rowStarts };
 }
 
-/**
- * The problems with variants that this tool cannot fix by itself, said so the user can. Shopify rejects duplicate option
- * combinations and variants without a value, and expects a product's rows together.
- */
-function variantNotices(
-  heads: ProductHead[],
-  slots: boolean[],
-  extra: { apart: number; apartExample: number; apartBy: "handle" | "title"; nameConflicts: number; nameConflictExample: string },
-): string[] {
-  const notices: string[] = [];
-  let duplicates = 0;
-  const duplicateExamples: string[] = [];
-  const missing = [0, 0, 0];
-  const missingExamples: number[] = [0, 0, 0];
+/* -------------------------------------------------------------------------- */
+/*  Warnings: the sentences                                                    */
+/* -------------------------------------------------------------------------- */
 
-  for (const head of heads) {
-    if (head.rows.length < 2) continue;
-    const seen = new Map<string, number>();
-    for (const { number, values } of head.rows) {
-      const combination = values.filter((_, slot) => slots[slot]).join(" / ");
-      if (combination.replace(/ \/ /g, "") !== "") {
-        const key = combination.toLowerCase();
-        if (seen.has(key)) {
-          duplicates++;
-          if (duplicateExamples.length < EXAMPLES) duplicateExamples.push(`row ${number} repeats row ${seen.get(key)}: ${combination}`);
-        } else seen.set(key, number);
-      }
-      for (let slot = 0; slot < OPTION_SLOTS; slot++) {
-        const siblingsHaveValue = head.rows.some((other) => other.values[slot] !== "");
-        if (slots[slot] && values[slot] === "" && siblingsHaveValue) {
-          missing[slot]++;
-          if (missingExamples[slot] === 0) missingExamples[slot] = number;
-        }
-      }
-    }
-  }
+interface WarningText {
+  severity: SanitizeWarning["severity"];
+  title: string;
+  message: (count: number, options: SanitizeOptions, currencies: string[]) => string;
+  resolution?: (options: SanitizeOptions) => string | undefined;
+}
 
-  if (duplicates > 0) {
-    notices.push(
-      `${duplicates.toLocaleString()} variant${duplicates === 1 ? " repeats" : "s repeat"} the option values of another variant of the same product (${duplicateExamples.join("; ")}). Shopify refuses that ("Option values are not unique"), so give each variant its own values.`,
-    );
+const UNIQUE_SKU_HINT = ' Switch on "Make SKUs unique per variant" to tell them apart.';
+
+/** In the order the panel lists them: the problems that break an import first, the notes about what was fixed last. */
+const WARNING_ORDER: ReadonlyArray<readonly [WarningKind, WarningText]> = [
+  ["split_product", {
+    severity: "warning",
+    title: "Same title, separate products",
+    message: (n) => `${n.toLocaleString()} ${plural(n, "product has", "products have")} the same title (or handle) as an earlier product, under another product code or not next to it. Each was kept as its own product with its own handle: the second gets -2, the third -3. If they are really variants of one product, put them next to each other and give them the same product code.`,
+  }],
+  ["sku_copied", {
+    severity: "warning",
+    title: "SKU copied from previous product",
+    message: (n) => `${n.toLocaleString()} ${plural(n, "product starts", "products start")} with the same SKU as the different product right before ${plural(n, "it", "them")}. A copied code cannot say which product a row belongs to, so the title and the option values decided: rows right below with the same title and other option values were grouped with it, and its SKU stays unique when "Make SKUs unique per variant" is on.`,
+  }],
+  ["duplicate_variant", {
+    severity: "warning",
+    title: "Duplicate variants",
+    message: (n) => `${n.toLocaleString()} ${plural(n, "variant repeats", "variants repeat")} the option values of another variant of the same product. Shopify refuses that ("Option values are not unique"), so give each variant its own values.`,
+  }],
+  ["missing_option_value", {
+    severity: "warning",
+    title: "Variants missing an option value",
+    message: (n) => `${n.toLocaleString()} variant ${plural(n, "row has", "rows have")} no value for an option that other variants of the same product have. Shopify needs a value on every variant.`,
+  }],
+  ["option_name_conflict", {
+    severity: "warning",
+    title: "Option named differently",
+    message: (n) => `${n.toLocaleString()} variant ${plural(n, "row names", "rows name")} an option differently from the product's first row. Shopify takes the names from the first row, so that is what was written.`,
+  }],
+  ["duplicate_sku_in_product", {
+    severity: "warning",
+    title: "Duplicate SKUs within a product",
+    message: (n, options) => `${n.toLocaleString()} ${plural(n, "variant uses", "variants use")} the same SKU as another variant of the same product.${options.uniqueSkus ? "" : UNIQUE_SKU_HINT}`,
+    resolution: (options) => (options.uniqueSkus ? "Made unique by adding each variant's option values (the changed SKUs are listed below)." : undefined),
+  }],
+  ["duplicate_sku_across_products", {
+    severity: "warning",
+    title: "Duplicate SKUs across products",
+    message: (n, options) => `${n.toLocaleString()} ${plural(n, "variant uses", "variants use")} a SKU that already belongs to a different product.${options.uniqueSkus ? "" : UNIQUE_SKU_HINT}`,
+    resolution: (options) => (options.uniqueSkus ? "Made unique (the changed SKUs are listed below)." : undefined),
+  }],
+  ["sku_changed", {
+    severity: "info",
+    title: "SKUs made unique",
+    message: (n) => `${n.toLocaleString()} ${plural(n, "SKU was", "SKUs were")} changed so that every variant has its own.`,
+  }],
+  ["invalid_ean", {
+    severity: "warning",
+    title: "Invalid EAN",
+    message: (n) => `${n.toLocaleString()} ${plural(n, "barcode is", "barcodes are")} not 8, 12, 13 or 14 digits, so Variant Barcode was left empty for ${plural(n, "it", "them")}.`,
+  }],
+  ["ean_check_digit", {
+    severity: "warning",
+    title: "EAN check digit does not match",
+    message: (n) => `${n.toLocaleString()} ${plural(n, "barcode has", "barcodes have")} the right length but a last digit that does not match the others (the GS1 check digit), so ${plural(n, "it may contain", "they may contain")} a typo. ${plural(n, "It was", "They were")} written as supplied: check ${plural(n, "it", "them")} against the product.`,
+  }],
+  ["non_numeric_stock", {
+    severity: "warning",
+    title: "Stock without a number",
+    message: (n) => `${n.toLocaleString()} ${plural(n, "variant has", "variants have")} a stock that is blank or not a whole number (for example "skladem"), so Variant Inventory Qty was left empty for ${plural(n, "it", "them")}.`,
+  }],
+  ["invalid_weight", {
+    severity: "warning",
+    title: "Unreadable weight",
+    message: (n) => `${n.toLocaleString()} ${plural(n, "weight", "weights")} could not be read as a number with an optional unit, so Variant Grams was left empty for ${plural(n, "it", "them")}.`,
+  }],
+  ["weight_unit_assumed", {
+    severity: "info",
+    title: "Weight without a unit",
+    message: (n) => `${n.toLocaleString()} ${plural(n, "weight has", "weights have")} no unit, and neither has the column header, so grams were assumed.`,
+  }],
+  ["placeholder_description", {
+    severity: "warning",
+    title: "Placeholder descriptions",
+    message: (n) => `${n.toLocaleString()} ${plural(n, "row has", "rows have")} a description that only says there is none (for example "popis není k dispozici" or "N/A").`,
+    resolution: () => "Treated as empty, so no placeholder text reaches the shop.",
+  }],
+  ["mixed_currencies", {
+    severity: "warning",
+    title: "Mixed currencies",
+    message: (n, _options, currencies) => `This file mixes currencies (${currencies.join(", ")}). Shopify prices have no currency, so every price is read in your store's currency: check the ${n.toLocaleString()} ${plural(n, "row", "rows")} listed.`,
+  }],
+  ["currency_symbol_in_price", {
+    severity: "info",
+    title: "Currency symbol in the price",
+    message: (n) => `${n.toLocaleString()} ${plural(n, "price includes", "prices include")} a currency symbol or code (for example "Kč 999,99").`,
+    resolution: () => "Removed: prices are written as plain numbers in your store's currency.",
+  }],
+  ["invalid_image_url", {
+    severity: "warning",
+    title: "Image links that are not http(s)",
+    message: (n) => `${n.toLocaleString()} ${plural(n, "row has", "rows have")} an image link that is not a web (http or https) address, so it was left out. Shopify can only fetch images from the web.`,
+  }],
+];
+
+function buildWarnings(findings: Findings, options: SanitizeOptions, currencies: string[]): SanitizeWarning[] {
+  const warnings: SanitizeWarning[] = [];
+  for (const [kind, text] of WARNING_ORDER) {
+    const group = findings.get(kind);
+    if (!group) continue;
+    const resolution = text.resolution?.(options);
+    warnings.push({
+      kind,
+      severity: text.severity,
+      title: text.title,
+      message: text.message(group.count, options, currencies),
+      count: group.count,
+      rows: group.rows,
+      ...(resolution ? { resolution } : {}),
+      ...(group.details.some((detail) => detail !== "") ? { details: group.details } : {}),
+    });
   }
-  for (let slot = 0; slot < OPTION_SLOTS; slot++) {
-    if (missing[slot] > 0) {
-      const name = heads.find((head) => head.names[slot] !== "")?.names[slot] || `Option ${slot + 1}`;
-      notices.push(
-        `${missing[slot].toLocaleString()} variant row${missing[slot] === 1 ? " has" : "s have"} no value for "${name}" although other variants of the same product do (for example row ${missingExamples[slot]}). Shopify needs a value on every variant.`,
-      );
-    }
-  }
-  if (extra.apart > 0) {
-    notices.push(
-      `${extra.apart.toLocaleString()} variant row${extra.apart === 1 ? " is" : "s are"} not next to the rest of ${extra.apart === 1 ? "its" : "their"} product (for example row ${extra.apartExample}). Shopify expects a product's rows together, so sort the file by ${extra.apartBy} first.`,
-    );
-  }
-  if (extra.nameConflicts > 0) {
-    notices.push(
-      `${extra.nameConflicts.toLocaleString()} variant row${extra.nameConflicts === 1 ? " names" : "s name"} an option differently from its product's first row (${extra.nameConflictExample}). Shopify takes the names from the first row, so that is what was written.`,
-    );
-  }
-  return notices;
+  return warnings;
 }
 
 /** Individual fixes the cleaner applied (titles, descriptions, handles, image cells, prices). This is what telemetry records. */
@@ -1060,7 +1661,7 @@ export function buildPreviewPairs(
 /*  7. Shopify CSV columns                                                     */
 /* -------------------------------------------------------------------------- */
 
-/** Column titles exactly as the Shopify product importer expects them. */
+/** The six columns every file has, exactly as the Shopify product importer expects them. */
 export const SHOPIFY_COLUMNS: ReadonlyArray<{ key: keyof CleanedShopifyRow; header: string }> = [
   { key: "Handle", header: "Handle" },
   { key: "Title", header: "Title" },
@@ -1070,19 +1671,57 @@ export const SHOPIFY_COLUMNS: ReadonlyArray<{ key: keyof CleanedShopifyRow; head
   { key: "Variant_SKU", header: "Variant SKU" },
 ];
 
+type Column = { key: keyof CleanedShopifyRow; header: string };
+
 /** The option columns, written only for the options a file actually has (a file without variants gets none). */
-export const SHOPIFY_OPTION_COLUMNS: ReadonlyArray<ReadonlyArray<{ key: keyof CleanedShopifyRow; header: string }>> = [
+export const SHOPIFY_OPTION_COLUMNS: ReadonlyArray<ReadonlyArray<Column>> = [
   [{ key: "Option1_Name", header: "Option1 Name" }, { key: "Option1_Value", header: "Option1 Value" }],
   [{ key: "Option2_Name", header: "Option2 Name" }, { key: "Option2_Value", header: "Option2 Value" }],
   [{ key: "Option3_Name", header: "Option3 Name" }, { key: "Option3_Value", header: "Option3 Value" }],
 ];
 
-/** The columns to write for these rows: the base columns, plus Option1..3 Name and Value for each option in use. */
-export function shopifyColumnsFor(rows: CleanedShopifyRow[]): Array<{ key: keyof CleanedShopifyRow; header: string }> {
-  const columns = [...SHOPIFY_COLUMNS];
-  SHOPIFY_OPTION_COLUMNS.forEach((pair, slot) => {
-    const used = rows.some((row) => row[`Option${slot + 1}_Value` as keyof CleanedShopifyRow] !== "" || row[`Option${slot + 1}_Name` as keyof CleanedShopifyRow] !== "");
-    if (used) columns.push(...pair);
+/** Written only when the file gave something for them, in the order the importer's own template lists them. */
+const CATALOG_COLUMNS_BEFORE_IMAGES: ReadonlyArray<Column> = [
+  { key: "Vendor", header: "Vendor" },
+  { key: "Type", header: "Type" },
+  { key: "Tags", header: "Tags" },
+];
+const CATALOG_COLUMNS_AFTER_OPTIONS: ReadonlyArray<Column> = [
+  { key: "Variant_Barcode", header: "Variant Barcode" },
+  { key: "Variant_Grams", header: "Variant Grams" },
+  { key: "Variant_Inventory_Tracker", header: "Variant Inventory Tracker" },
+  { key: "Variant_Inventory_Qty", header: "Variant Inventory Qty" },
+];
+
+/** The header of any column this tool can write, for the screens that name a field ("Variant Barcode"). */
+export function shopifyHeaderOf(key: keyof CleanedShopifyRow): string {
+  const all: Column[] = [
+    ...SHOPIFY_COLUMNS,
+    ...SHOPIFY_OPTION_COLUMNS.flat(),
+    ...CATALOG_COLUMNS_BEFORE_IMAGES,
+    ...CATALOG_COLUMNS_AFTER_OPTIONS,
+    { key: "Image_Position", header: "Image Position" },
+    { key: "Status", header: "Status" },
+  ];
+  return all.find((column) => column.key === key)?.header ?? key;
+}
+
+/**
+ * The columns to write for these rows: the six every file has; Vendor, Type, Tags, Image Position, Variant Barcode, Variant
+ * Grams and the inventory pair when some row has a value for them; Option1..3 Name and Value for each option in use; and
+ * Status, which every file gets.
+ */
+export function shopifyColumnsFor(rows: CleanedShopifyRow[]): Column[] {
+  const has = (key: keyof CleanedShopifyRow): boolean => rows.some((row) => row[key] !== "");
+  const columns: Column[] = [SHOPIFY_COLUMNS[0], SHOPIFY_COLUMNS[1], SHOPIFY_COLUMNS[2]];
+  columns.push(...CATALOG_COLUMNS_BEFORE_IMAGES.filter((column) => has(column.key)));
+  columns.push(SHOPIFY_COLUMNS[3]);
+  if (has("Image_Position")) columns.push({ key: "Image_Position", header: "Image Position" });
+  columns.push(SHOPIFY_COLUMNS[4], SHOPIFY_COLUMNS[5]);
+  SHOPIFY_OPTION_COLUMNS.forEach((pair) => {
+    if (pair.some((column) => has(column.key))) columns.push(...pair);
   });
+  columns.push(...CATALOG_COLUMNS_AFTER_OPTIONS.filter((column) => has(column.key)));
+  columns.push({ key: "Status", header: "Status" });
   return columns;
 }

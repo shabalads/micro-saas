@@ -7,7 +7,7 @@ import type { RawSupplierRow } from "../app/types/csv";
 import { decodeSupplierBytes, parseSupplierText } from "../app/utils/csv-parser";
 import { SINGLE_BYTE_TABLES } from "../app/utils/single-byte-tables";
 import { ENCODING_LABELS } from "../app/utils/text-encoding";
-import { SHOPIFY_COLUMNS, buildPreviewPairs, sanitizeDataset } from "../app/utils/sanitizer";
+import { buildPreviewPairs, sanitizeDataset, shopifyColumnsFor } from "../app/utils/sanitizer";
 import type { DemoField, DemoSpec } from "./import-errors";
 
 export interface DemoLine {
@@ -105,7 +105,7 @@ export function runDemo(spec: DemoSpec): DemoResult {
       return {
         beforeLabel: "First line of your file",
         afterLabel: "Header row this tool writes",
-        lines: [{ before: JSON.stringify(spec.text.split("\n")[0]).slice(1, -1) || firstLine, after: SHOPIFY_COLUMNS.map((column) => column.header).join(",") }],
+        lines: [{ before: JSON.stringify(spec.text.split("\n")[0]).slice(1, -1) || firstLine, after: shopifyColumnsFor(cleaned).map((column) => column.header).join(",") }],
         note: null,
       };
     }

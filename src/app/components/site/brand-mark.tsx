@@ -10,7 +10,7 @@ export function BrandMark() {
           <path d="m5 12 4.5 4.5L19 7" />
         </svg>
       </span>
-      <span className="text-base font-semibold tracking-tight text-neutral-50">
+      <span className="text-sm font-semibold leading-tight tracking-tight text-neutral-50 sm:text-base sm:leading-normal">
         {[first, ...rest].join(" ")} {last && <span className="text-emerald-400">{last}</span>}
       </span>
     </span>

@@ -2,12 +2,14 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import { logUsageTelemetry } from "../actions/telemetry";
 import CsvUploader, { SAMPLE_FILE_NAME, type UploadSource } from "./csv-uploader";
 import DataPreview from "./data-preview";
-import type { CsvState, RawSupplierRow } from "../types/csv";
+import ExportOptions from "./export-options";
+import WarningsPanel from "./warnings-panel";
+import type { CsvState, RawSupplierRow, SanitizeOptions, SanitizeReport } from "../types/csv";
 import type { PurchaseGrant } from "../types/unlock";
 import { anonymizeFileName } from "../utils/anonymize";
 import { type EncodingReport, parseSupplierBytes } from "../utils/csv-parser";
@@ -16,7 +18,7 @@ import { type ParkedJobMeta, deleteParkedJob, listParkedJobs, loadParkedData, pa
 import { fingerprintRows, isFreeFile, previewRows } from "../utils/paywall";
 import { findRecoverableFile } from "../utils/recovery";
 import { FREE_ROW_LIMIT, PRICE_LABEL, taxNote } from "../utils/pricing";
-import { countFixes, sanitizeDataset } from "../utils/sanitizer";
+import { countFixes, defaultSanitizeOptions, mergeSanitizeOptions, sampleTitleCasing, sanitizeDataset } from "../utils/sanitizer";
 import { ENCODING_LABELS, SELECTABLE_ENCODINGS, type SupplierEncoding, isSupplierEncoding } from "../utils/text-encoding";
 import { WAIVER_SUMMARY, guaranteeLabel, guaranteeNearPayButton } from "../../site/legal";
 import { requestTrial } from "../utils/trial-client";
@@ -68,14 +70,22 @@ function wait(ms: number): Promise<void> {
 function buildLoadedState(
   rawData: RawSupplierRow[],
   info: { fileName: string | null; fileSize: number; warnings: string[]; fingerprint: string | null },
+  options: SanitizeOptions,
 ): CsvState {
-  const { rows, report, rowStarts } = sanitizeDataset(previewRows(rawData));
-  // Variant problems the cleaner found but cannot fix are shown with the file's other warnings. For a file over the free
-  // limit only the preview rows have been looked at, and the message says so rather than implying the whole file is fine.
-  const partial = rawData.length > report.sourceRows;
-  const notices = report.notices.map((notice) => (partial ? `${notice} (Only the free preview rows were checked.)` : notice));
-  return { loading: false, error: null, rawData, cleanedData: rows, rowStarts, report, ...info, warnings: [...info.warnings, ...notices] };
+  // report.warnings (duplicate SKUs, invalid EANs ...) are shown by the warnings panel, which says how much of the file they cover.
+  const { rows, report, rowStarts } = sanitizeDataset(previewRows(rawData), options);
+  return { loading: false, error: null, rawData, cleanedData: rows, rowStarts, report, ...info };
 }
+
+/** The preview and its report again after a switch was flipped. The file's own (parse) warnings stay as they are. */
+function rebuildPreview(current: CsvState, options: SanitizeOptions): CsvState {
+  if (current.rawData.length === 0) return current;
+  const { rows, report, rowStarts } = sanitizeDataset(previewRows(current.rawData), options);
+  return { ...current, cleanedData: rows, rowStarts, report };
+}
+
+/** What a file starts with: SKUs made unique when its variants share one, and products as drafts. Only the preview rows are looked at. */
+const startingOptions = (rawData: RawSupplierRow[]): SanitizeOptions => defaultSanitizeOptions(previewRows(rawData));
 
 function describeExportError(error: unknown): string {
   if (error instanceof ExportBlockedError) {
@@ -98,7 +108,8 @@ async function exportFile(
   grant: PurchaseGrant | null,
   onGrant: (grant: PurchaseGrant) => void,
   fingerprint: string | null,
-): Promise<void> {
+  options: SanitizeOptions,
+): Promise<SanitizeReport> {
   let current = grant;
   const refresh = async (): Promise<boolean> => {
     if (!current) return false;
@@ -120,11 +131,10 @@ async function exportFile(
 
   if (!isFreeFile(rows.length) && !isGrantFresh(current)) await refresh();
   try {
-    await exportCleanedFile({ rows, fileName, token: current?.token ?? null, fingerprint });
+    return (await exportCleanedFile({ rows, fileName, token: current?.token ?? null, fingerprint, options })).report;
   } catch (error) {
     if (error instanceof ExportBlockedError && error.reason === "token" && (await refresh())) {
-      await exportCleanedFile({ rows, fileName, token: current?.token ?? null, fingerprint });
-      return;
+      return (await exportCleanedFile({ rows, fileName, token: current?.token ?? null, fingerprint, options })).report;
     }
     throw error;
   }
@@ -355,6 +365,12 @@ export default function SanitizerTool() {
   const [trialPending, setTrialPending] = useState(false);
   const [trialMessage, setTrialMessage] = useState<{ tone: "warning" | "error"; text: string } | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
+  /** The two export switches (unique SKUs, import as active). They change the preview, the download and what the warnings say. */
+  const [options, setOptions] = useState<SanitizeOptions>({ uniqueSkus: false, status: "draft", casing: "title" });
+  /** Whether the file's variants share one SKU, which is why "unique SKUs" started switched on (for the hint next to it). */
+  const [skusShared, setSkusShared] = useState(false);
+  /** The report of the WHOLE file, once a download has produced it. Until then the warnings come from the free preview. */
+  const [fullReport, setFullReport] = useState<SanitizeReport | null>(null);
   /** What happened when the customer came back from Stripe or a paid file was recovered, if anything. */
   const [payment, setPayment] = useState<PaymentNotice | null>(null);
   /** How the uploaded bytes were read, and the bytes themselves so another encoding can be tried without uploading again. */
@@ -375,6 +391,23 @@ export default function SanitizerTool() {
   const isPartial = report !== null && totalRows > report.sourceRows;
   const isGated = !isFreeFile(totalRows) && grant === null;
   const isVerifying = payment?.phase === "verifying";
+  /** Three titles of the file as supplied and as the chosen casing writes them, shown under the casing selector. */
+  const casingSamples = useMemo(() => sampleTitleCasing(previewRows(state.rawData), options.casing), [state.rawData, options.casing]);
+  /** What the warnings panel says about how much of the file it looked at. Before a download only the free preview has been checked. */
+  const warningsScope =
+    fullReport !== null || !isPartial
+      ? `Checked all ${totalRows.toLocaleString()} rows.`
+      : `Checked the free preview: the first ${(report?.sourceRows ?? 0).toLocaleString()} of your ${totalRows.toLocaleString()} rows. The whole file is checked when you ${grant ? "download" : "unlock"} it.`;
+
+  /** Puts a file's switches on screen: its own when it was parked with some, otherwise the starting ones. */
+  const adoptOptions = (rawData: RawSupplierRow[], saved?: SanitizeOptions): SanitizeOptions => {
+    const starting = startingOptions(rawData);
+    setSkusShared(starting.uniqueSkus);
+    // A file parked by an older build has no casing (or no other newer option): those fall back to the starting ones.
+    const chosen = saved ? mergeSanitizeOptions(starting, saved) : starting;
+    setOptions(chosen);
+    return chosen;
+  };
 
   useEffect(() => {
     return () => {
@@ -417,7 +450,7 @@ export default function SanitizerTool() {
       clearUrl();
       const parked = await findParked();
       if (!parked) return;
-      setState(buildLoadedState(parked.rawData, parked.meta));
+      setState(buildLoadedState(parked.rawData, parked.meta, adoptOptions(parked.rawData, parked.meta.options)));
       setTelemetryId(jobId);
       setPayment({ phase: "canceled" });
     };
@@ -456,12 +489,13 @@ export default function SanitizerTool() {
         return;
       }
 
-      setState(buildLoadedState(parked.rawData, parked.meta));
+      const chosen = adoptOptions(parked.rawData, parked.meta.options);
+      setState(buildLoadedState(parked.rawData, parked.meta, chosen));
       setTelemetryId(jobId);
       setGrant(paid);
       setPayment({ phase: "confirmed" });
       try {
-        await exportFile(parked.rawData, parked.meta.fileName, paid, setGrant, parked.meta.fingerprint);
+        setFullReport(await exportFile(parked.rawData, parked.meta.fileName, paid, setGrant, parked.meta.fingerprint, chosen));
         // The file has been handed over, so the parked copy can go.
         await deleteParkedJob(jobId).catch(() => {});
       } catch (exportError) {
@@ -495,12 +529,13 @@ export default function SanitizerTool() {
 
       const { meta, grant: paid, rawData } = outcome;
       rememberPurchases([paid]);
-      setState(buildLoadedState(rawData, meta));
+      const chosen = adoptOptions(rawData, meta.options);
+      setState(buildLoadedState(rawData, meta, chosen));
       setTelemetryId(meta.jobId);
       setGrant(paid);
       setPayment({ phase: "recovered" });
       try {
-        await exportFile(rawData, meta.fileName, paid, setGrant, meta.fingerprint);
+        setFullReport(await exportFile(rawData, meta.fileName, paid, setGrant, meta.fingerprint, chosen));
         // Handed over (and the download button still works if the browser blocked it): the parked copy can go.
         await deleteParkedJob(meta.jobId).catch(() => {});
       } catch (exportError) {
@@ -520,6 +555,7 @@ export default function SanitizerTool() {
     setGrant(null);
     setActionError(null);
     setPayment(null);
+    setFullReport(null);
   };
 
   const handleFileLoadStart = (fileName: string) => {
@@ -562,7 +598,8 @@ export default function SanitizerTool() {
     await wait(60);
 
     try {
-      const loaded = buildLoadedState(rows, { fileName, fileSize, warnings, fingerprint: null });
+      const starting = startingOptions(rows);
+      const loaded = buildLoadedState(rows, { fileName, fileSize, warnings, fingerprint: null }, starting);
       loaded.fingerprint = await fingerprintRows(rows);
       const loadedReport = loaded.report;
       const remaining = MIN_LOADING_MS - (performance.now() - startedAt);
@@ -588,6 +625,8 @@ export default function SanitizerTool() {
         })
         .catch(() => {});
 
+      setSkusShared(starting.uniqueSkus);
+      setOptions(starting);
       setState(loaded);
 
       await applyKnownPayment(rows.length, loaded.fingerprint, () => currentRun !== runId.current);
@@ -611,12 +650,14 @@ export default function SanitizerTool() {
     setActionError(null);
     try {
       const parsed = parseSupplierBytes(bytes, choice);
-      const loaded = buildLoadedState(parsed.rows, { fileName: state.fileName, fileSize: state.fileSize, warnings: parsed.warnings, fingerprint: null });
+      const loaded = buildLoadedState(parsed.rows, { fileName: state.fileName, fileSize: state.fileSize, warnings: parsed.warnings, fingerprint: null }, options);
       loaded.fingerprint = await fingerprintRows(parsed.rows);
       if (isStale()) return;
       // The rows changed, so the file is a different file as far as a payment is concerned: look for a payment again.
       setGrant(null);
       setPayment(null);
+      setFullReport(null);
+      setSkusShared(startingOptions(parsed.rows).uniqueSkus);
       setEncoding(parsed.encoding);
       setState(loaded);
       await applyKnownPayment(parsed.rows.length, loaded.fingerprint, isStale);
@@ -651,7 +692,7 @@ export default function SanitizerTool() {
     setActionError(null);
     setIsExporting(true);
     try {
-      await exportFile(state.rawData, state.fileName, grant, setGrant, state.fingerprint);
+      setFullReport(await exportFile(state.rawData, state.fileName, grant, setGrant, state.fingerprint, options));
       setJustDownloaded(true);
       if (feedbackTimer.current) clearTimeout(feedbackTimer.current);
       feedbackTimer.current = setTimeout(() => setJustDownloaded(false), DOWNLOAD_FEEDBACK_MS);
@@ -686,10 +727,18 @@ export default function SanitizerTool() {
     setTrialOpen(false);
     setPayment({ phase: "trial" });
     try {
-      await exportFile(state.rawData, state.fileName, result.grant, setGrant, fingerprint);
+      setFullReport(await exportFile(state.rawData, state.fileName, result.grant, setGrant, fingerprint, options));
     } catch (exportError) {
       setActionError(`${describeExportError(exportError)} Your file is unlocked: use the download button.`);
     }
+  };
+
+  /** A switch was flipped: the preview, the warnings and the next download follow it; a report from an earlier download no longer fits. */
+  const handleOptionsChange = (next: SanitizeOptions) => {
+    setOptions(next);
+    setFullReport(null);
+    setJustDownloaded(false);
+    setState((current) => rebuildPreview(current, next));
   };
 
   const handleCheckout = async () => {
@@ -720,6 +769,7 @@ export default function SanitizerTool() {
             fileName: state.fileName,
             fileSize: state.fileSize,
             warnings: state.warnings,
+            options,
             savedAt: Date.now(),
           },
           state.rawData,
@@ -960,6 +1010,10 @@ export default function SanitizerTool() {
             </Banner>
           )}
           {error && <Banner tone="error" title="Something went wrong" onDismiss={() => setState((current) => ({ ...current, error: null }))}>{error}</Banner>}
+
+          <ExportOptions options={options} skusShared={skusShared} samples={casingSamples} onChange={handleOptionsChange} />
+
+          <WarningsPanel report={fullReport ?? report} scope={warningsScope} />
 
           <DataPreview
             rawData={state.rawData}
