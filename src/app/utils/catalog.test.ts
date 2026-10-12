@@ -21,16 +21,42 @@ function csvOf(raw: RawSupplierRow[], options = {}) {
 }
 
 describe("which rows are one product", () => {
-  it("a product-code column groups the variants, and only the rows next to each other", () => {
+  it("a product-code column groups the variants, even when other rows sit between them (the product keeps its first position)", () => {
     const { rows, report } = sanitizeDataset([
-      row({ title: "Tee", productCode: "A", sku: "A-S", options: sizeColor("S", "Red") }),
-      row({ title: "Tee", productCode: "A", sku: "A-M", options: sizeColor("M", "Red") }),
-      row({ title: "Cap", productCode: "B", sku: "B-1", options: sizeColor("S", "Red") }),
-      row({ title: "Tee", productCode: "A", sku: "A-L", options: sizeColor("L", "Red") }),
+      row({ title: "Tee", productCode: "A", sku: "A-S", options: sizeColorExplicit("S", "Red") }),
+      row({ title: "Tee", productCode: "A", sku: "A-M", options: sizeColorExplicit("M", "Red") }),
+      row({ title: "Cap", productCode: "B", sku: "B-1", options: sizeColorExplicit("S", "Red") }),
+      row({ title: "Tee", productCode: "A", sku: "A-L", options: sizeColorExplicit("L", "Red") }),
     ]);
-    expect(rows.map((entry) => [entry.Handle, entry.Title])).toEqual([["tee", "Tee"], ["tee", ""], ["cap", "Cap"], ["tee-2", "Tee"]]);
-    expect(report).toMatchObject({ productCount: 3, variantRows: 1 });
-    expect(warningOf(report.warnings, "split_product")).toMatchObject({ count: 1, rows: [4] });
+    expect(rows.map((entry) => [entry.Handle, entry.Title, entry.Option1_Value])).toEqual([["tee", "Tee", "S"], ["tee", "", "M"], ["tee", "", "L"], ["cap", "Cap", "S"]]);
+    expect(report).toMatchObject({ productCount: 2, variantRows: 2 });
+    expect(kindsOf(report.warnings)).toEqual(["variants_apart"]);
+    expect(warningOf(report.warnings, "variants_apart")).toMatchObject({
+      severity: "warning",
+      title: "Variants were not next to their product",
+      count: 1,
+      rows: [5],
+      details: ['joins "Tee" (row 2), which keeps its first position'],
+    });
+  });
+
+  it("rows with the same code but ANOTHER title stay separate products, wherever they are", () => {
+    const { rows, report } = sanitizeDataset([
+      row({ title: "Tee", productCode: "A", sku: "A-S", options: sizeColorExplicit("S", "Red") }),
+      row({ title: "Cap", productCode: "A", sku: "A-1", options: sizeColorExplicit("S", "Red") }),
+      row({ title: "Tee", productCode: "A", sku: "A-M", options: sizeColorExplicit("M", "Red") }),
+    ]);
+    expect(rows.map((entry) => [entry.Handle, entry.Title])).toEqual([["tee", "Tee"], ["tee", ""], ["cap", "Cap"]]);
+    expect(report.productCount).toBe(2);
+  });
+
+  it("the same title under a different code is never pulled in, however far apart", () => {
+    const { rows } = sanitizeDataset([
+      row({ title: "Tee", productCode: "A", sku: "A-S", options: sizeColorExplicit("S", "Red") }),
+      row({ title: "Cap", productCode: "B", sku: "B-1", options: sizeColorExplicit("S", "Red") }),
+      row({ title: "Tee", productCode: "C", sku: "C-M", options: sizeColorExplicit("M", "Red") }),
+    ]);
+    expect(rows.map((entry) => entry.Handle)).toEqual(["tee", "cap", "tee-2"]);
   });
 
   it("the same title under a DIFFERENT product code, even right next to it, is a separate product (-2, -3) and is warned about", () => {
@@ -42,8 +68,8 @@ describe("which rows are one product", () => {
     ]);
     expect(rows.map((entry) => entry.Handle)).toEqual(["tee", "tee", "tee-2", "tee-3"]);
     expect(report.productCount).toBe(3);
-    expect(warningOf(report.warnings, "split_product")).toMatchObject({ count: 2, rows: [3, 4] });
-    expect(warningOf(report.warnings, "split_product")?.details?.[0]).toMatch(/"Tee" again \(first in row 1\) is now tee-2/);
+    expect(warningOf(report.warnings, "split_product")).toMatchObject({ count: 2, rows: [4, 5] });
+    expect(warningOf(report.warnings, "split_product")?.details?.[0]).toMatch(/"Tee" again \(first in row 2\) is now tee-2/);
   });
 
   it("the same product code on DIFFERENT titles is two products", () => {
@@ -86,7 +112,7 @@ describe("which rows are one product", () => {
     ]);
     expect(rows.map((entry) => entry.Handle)).toEqual(["tee", "cap", "tee-2", "hat", "tee-3"]);
     expect(report).toMatchObject({ productCount: 5, variantRows: 0, duplicateHandlesResolved: 2 });
-    expect(warningOf(report.warnings, "split_product")).toMatchObject({ count: 2, rows: [3, 5] });
+    expect(warningOf(report.warnings, "split_product")).toMatchObject({ count: 2, rows: [4, 6] });
   });
 
   it("every handle is one block: no handle ever comes back after another", () => {
@@ -105,10 +131,10 @@ describe("which rows are one product", () => {
       row({ title: "Tee", productCode: "A", options: sizeColorExplicit("S", "Red") }),
       row({ title: "Tee", productCode: "A", options: sizeColorExplicit("M", "Red") }),
       row({ title: "Tee", productCode: "A", options: sizeColorExplicit("s", "red") }),
-      row({ title: "Tee", productCode: "A", options: sizeColorExplicit("M", "Red") }),
+      row({ title: "Tee", productCode: "A", sku: "second M", options: sizeColorExplicit("M", "Red") }),
     ]);
     expect(new Set(rows.map((entry) => entry.Handle)).size).toBe(1); // still one product: the file said so
-    expect(warningOf(report.warnings, "duplicate_variant")).toMatchObject({ count: 2, rows: [3, 4], details: ["repeats row 1: S / Red", "repeats row 2: M / Red"] });
+    expect(warningOf(report.warnings, "duplicate_variant")).toMatchObject({ count: 2, rows: [4, 5], details: ["repeats row 2: S / Red", "repeats row 3: M / Red"] });
   });
 });
 
@@ -136,8 +162,8 @@ describe("a code copied from the previous product", () => {
       severity: "warning",
       title: "SKU copied from previous product",
       count: 1,
-      rows: [3],
-      details: ['J-1 is also the code of "Jacket" above (row 1); grouped with the 2 rows below it'],
+      rows: [4],
+      details: ['J-1 is also the code of "Jacket" above (row 2); grouped with the 2 rows below it'],
     });
   });
 
@@ -173,8 +199,8 @@ describe("a code copied from the previous product", () => {
       ]);
       expect(rows.map((entry) => entry.Handle)).toEqual(["jacket", "jacket", "tee", "tee-2"]);
       expect(report.productCount).toBe(3);
-      expect(warningOf(report.warnings, "split_product")).toMatchObject({ count: 1, rows: [4] });
-      expect(warningOf(report.warnings, "sku_copied")).toMatchObject({ rows: [3] });
+      expect(warningOf(report.warnings, "split_product")).toMatchObject({ count: 1, rows: [5] });
+      expect(warningOf(report.warnings, "sku_copied")).toMatchObject({ rows: [4] });
     });
 
     it("when they are not next to each other, even with other options", () => {
@@ -185,7 +211,7 @@ describe("a code copied from the previous product", () => {
         row({ title: "Tee", sku: "T-1", options: sizeColorExplicit("M", "Red") }),
       ]);
       expect(rows.map((entry) => entry.Handle)).toEqual(["jacket", "jacket", "tee", "cap", "tee-2"]);
-      expect(warningOf(report.warnings, "split_product")).toMatchObject({ count: 1, rows: [5] });
+      expect(warningOf(report.warnings, "split_product")).toMatchObject({ count: 1, rows: [6] });
     });
 
     it("when there are no option values to tell the rows apart", () => {
@@ -258,7 +284,7 @@ describe("EAN check digit", () => {
     expect(warningOf(report.warnings, "ean_check_digit")).toMatchObject({
       severity: "warning",
       count: 2,
-      rows: [2, 3],
+      rows: [3, 4],
       details: ["12345678 (the last digit should be 0)", "8371407742358 (the last digit should be 3)"],
     });
     expect(kindsOf(report.warnings)).not.toContain("invalid_ean");
@@ -266,13 +292,13 @@ describe("EAN check digit", () => {
 
   it("is separate from the invalid-length warning, and a barcode that is not a barcode gets only that one", () => {
     const { report } = sanitizeDataset([row({ title: "A", barcode: "1234567" }), row({ title: "B", barcode: "12345678" })]);
-    expect(warningOf(report.warnings, "invalid_ean")).toMatchObject({ count: 1, rows: [1] });
-    expect(warningOf(report.warnings, "ean_check_digit")).toMatchObject({ count: 1, rows: [2] });
+    expect(warningOf(report.warnings, "invalid_ean")).toMatchObject({ count: 1, rows: [2] });
+    expect(warningOf(report.warnings, "ean_check_digit")).toMatchObject({ count: 1, rows: [3] });
   });
 
   it("lists at most 10 rows but counts them all", () => {
     const { report } = sanitizeDataset(Array.from({ length: 14 }, (_, i) => row({ title: `Item ${i}`, barcode: "12345678" })));
-    expect(warningOf(report.warnings, "ean_check_digit")).toMatchObject({ count: 14, rows: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10] });
+    expect(warningOf(report.warnings, "ean_check_digit")).toMatchObject({ count: 14, rows: [2, 3, 4, 5, 6, 7, 8, 9, 10, 11] });
   });
 });
 
@@ -316,7 +342,7 @@ describe("keeping the catalog data", () => {
       row({ title: "D", stock: "-2" }),
     ]);
     expect(rows.map((entry) => [entry.Variant_Inventory_Qty, entry.Variant_Inventory_Tracker])).toEqual([["", ""], ["7", "shopify"], ["", ""], ["", ""]]);
-    expect(warningOf(report.warnings, "non_numeric_stock")).toMatchObject({ count: 3, rows: [1, 3, 4], details: ['"skladem"', "(blank)", '"-2"'] });
+    expect(warningOf(report.warnings, "non_numeric_stock")).toMatchObject({ count: 3, rows: [2, 4, 5], details: ['"skladem"', "(blank)", '"-2"'] });
   });
 
   it("a file without a stock column gets no inventory columns and no stock warning", () => {
@@ -329,13 +355,13 @@ describe("keeping the catalog data", () => {
     const eans = ["12345678", "123456789012", "8371407742358", "12345678901234", "1234567", "ABC", "", "859 012 345 6789"];
     const { rows, report } = sanitizeDataset(eans.map((barcode, i) => row({ title: `Item ${i}`, barcode })));
     expect(rows.map((entry) => entry.Variant_Barcode)).toEqual(["12345678", "123456789012", "8371407742358", "12345678901234", "", "", "", "8590123456789"]);
-    expect(warningOf(report.warnings, "invalid_ean")).toMatchObject({ count: 2, rows: [5, 6], details: ['"1234567"', '"ABC"'] });
+    expect(warningOf(report.warnings, "invalid_ean")).toMatchObject({ count: 2, rows: [6, 7], details: ['"1234567"', '"ABC"'] });
   });
 
   it("weight becomes Variant Grams in whole grams (unit from the cell or the header)", () => {
     const { rows, report } = sanitizeDataset([row({ title: "A", weight: "0,5 kg" }), row({ title: "B", weight: "250", weightUnit: "g" }), row({ title: "C", weight: "heavy" }), row({ title: "D", weight: "" })]);
     expect(rows.map((entry) => entry.Variant_Grams)).toEqual(["500", "250", "", ""]);
-    expect(warningOf(report.warnings, "invalid_weight")).toMatchObject({ count: 1, rows: [3] });
+    expect(warningOf(report.warnings, "invalid_weight")).toMatchObject({ count: 1, rows: [4] });
   });
 
   it("writes the catalog columns only when the file has the data, and Status always", () => {
@@ -355,7 +381,7 @@ describe("currencies", () => {
       row({ title: "D", price: "9,90", currency: "USD" }),
     ]);
     expect(rows.every((entry) => !JSON.stringify(entry).includes("EUR"))).toBe(true);
-    expect(warningOf(report.warnings, "mixed_currencies")).toMatchObject({ count: 2, rows: [3, 4] });
+    expect(warningOf(report.warnings, "mixed_currencies")).toMatchObject({ count: 2, rows: [4, 5] });
     expect(warningOf(report.warnings, "mixed_currencies")?.message).toContain("CZK, EUR, USD");
   });
 
@@ -367,8 +393,8 @@ describe("currencies", () => {
   it("a symbol in the price is noted (and removed from the price); a symbol that contradicts the currency column is a mix", () => {
     const { rows, report } = sanitizeDataset([row({ title: "A", price: "199,00 Kč", currency: "CZK" }), row({ title: "B", price: "$12.50", currency: "CZK" }), row({ title: "C", price: "12,50" })]);
     expect(rows.map((entry) => entry.Variant_Price)).toEqual(["199.00", "12.50", "12.50"]);
-    expect(warningOf(report.warnings, "currency_symbol_in_price")).toMatchObject({ severity: "info", count: 2, rows: [1, 2], details: ["199,00 Kč", "$12.50"] });
-    expect(warningOf(report.warnings, "mixed_currencies")).toMatchObject({ count: 1, rows: [2], details: ["USD (most rows are CZK)"] });
+    expect(warningOf(report.warnings, "currency_symbol_in_price")).toMatchObject({ severity: "info", count: 2, rows: [2, 3], details: ["199,00 Kč", "$12.50"] });
+    expect(warningOf(report.warnings, "mixed_currencies")).toMatchObject({ count: 1, rows: [3], details: ["USD (most rows are CZK)"] });
   });
 });
 
@@ -382,7 +408,7 @@ describe("placeholder descriptions", () => {
       row({ title: "E", description: "" }),
     ]);
     expect(rows.map((entry) => entry.Body_HTML)).toEqual(["", "", "", "<p>A real description.</p>", ""]);
-    expect(warningOf(report.warnings, "placeholder_description")).toMatchObject({ count: 3, rows: [1, 2, 3] });
+    expect(warningOf(report.warnings, "placeholder_description")).toMatchObject({ count: 3, rows: [2, 3, 4] });
   });
 
   it("a real description on a later variant is used when the first one is a placeholder", () => {
@@ -430,7 +456,7 @@ describe("images", () => {
       row({ title: "C", images: "https://x.example.com/c.jpg" }),
     ]);
     expect(rows.map((entry) => entry.Image_Src)).toEqual(["https://x.example.com/ok.jpg", "", "https://x.example.com/c.jpg"]);
-    expect(warningOf(report.warnings, "invalid_image_url")).toMatchObject({ count: 2, rows: [1, 2], details: ['"ftp://x.example.com/a.jpg"', '"images/b.jpg"'] });
+    expect(warningOf(report.warnings, "invalid_image_url")).toMatchObject({ count: 2, rows: [2, 3], details: ['"ftp://x.example.com/a.jpg"', '"images/b.jpg"'] });
     expect(report.invalidImagesDropped).toBe(2);
   });
 });
@@ -467,11 +493,11 @@ describe("SKUs", () => {
     const { rows, report } = sanitizeDataset(tee, { uniqueSkus: true });
     expect(rows.map((entry) => entry.Variant_SKU)).toEqual(["SKU-1001-S-CERNA", "SKU-1001-S-SEDA", "SKU-1001-M-NAVY-BLUE"]);
     expect(report.skuChanges).toEqual([
-      { row: 1, from: "SKU-1001", to: "SKU-1001-S-CERNA" },
-      { row: 2, from: "SKU-1001", to: "SKU-1001-S-SEDA" },
-      { row: 3, from: "SKU-1001", to: "SKU-1001-M-NAVY-BLUE" },
+      { row: 2, from: "SKU-1001", to: "SKU-1001-S-CERNA" },
+      { row: 3, from: "SKU-1001", to: "SKU-1001-S-SEDA" },
+      { row: 4, from: "SKU-1001", to: "SKU-1001-M-NAVY-BLUE" },
     ]);
-    expect(warningOf(report.warnings, "sku_changed")).toMatchObject({ severity: "info", count: 3, rows: [1, 2, 3], details: ["SKU-1001 -> SKU-1001-S-CERNA", "SKU-1001 -> SKU-1001-S-SEDA", "SKU-1001 -> SKU-1001-M-NAVY-BLUE"] });
+    expect(warningOf(report.warnings, "sku_changed")).toMatchObject({ severity: "info", count: 3, rows: [2, 3, 4], details: ["SKU-1001 -> SKU-1001-S-CERNA", "SKU-1001 -> SKU-1001-S-SEDA", "SKU-1001 -> SKU-1001-M-NAVY-BLUE"] });
   });
 
   it("is on by default for such a file (no options given), and does nothing for a file whose SKUs already differ", () => {
@@ -487,7 +513,7 @@ describe("SKUs", () => {
     expect(rows.map((entry) => entry.Variant_SKU)).toEqual(["SKU-1001", "SKU-1001", "SKU-1001"]);
     expect(report.skuChanges).toEqual([]);
     const duplicate = warningOf(report.warnings, "duplicate_sku_in_product");
-    expect(duplicate).toMatchObject({ count: 2, rows: [2, 3], details: ["SKU-1001 (also in row 1)", "SKU-1001 (also in row 1)"] });
+    expect(duplicate).toMatchObject({ count: 2, rows: [3, 4], details: ["SKU-1001 (also in row 2)", "SKU-1001 (also in row 2)"] });
     expect(duplicate?.message).toContain('Switch on "Make SKUs unique per variant"');
     expect(duplicate?.resolution).toBeUndefined();
   });
@@ -495,7 +521,7 @@ describe("SKUs", () => {
   it("duplicates are reported whether or not they were fixed; fixed ones say so", () => {
     const { report } = sanitizeDataset(tee, { uniqueSkus: true });
     const duplicate = warningOf(report.warnings, "duplicate_sku_in_product");
-    expect(duplicate).toMatchObject({ count: 2, rows: [2, 3] });
+    expect(duplicate).toMatchObject({ count: 2, rows: [3, 4] });
     expect(duplicate?.resolution).toMatch(/Made unique/);
   });
 
@@ -503,10 +529,10 @@ describe("SKUs", () => {
     const raw = [row({ title: "Cap", sku: "X-1" }), row({ title: "Hat", sku: "X-1" }), row({ title: "Mug", sku: "X-1" })];
     const off = sanitizeDataset(raw, { uniqueSkus: false });
     expect(off.rows.map((entry) => entry.Variant_SKU)).toEqual(["X-1", "X-1", "X-1"]);
-    expect(warningOf(off.report.warnings, "duplicate_sku_across_products")).toMatchObject({ count: 2, rows: [2, 3], details: ["X-1 (first used in row 1)", "X-1 (first used in row 1)"] });
+    expect(warningOf(off.report.warnings, "duplicate_sku_across_products")).toMatchObject({ count: 2, rows: [3, 4], details: ["X-1 (first used in row 2)", "X-1 (first used in row 2)"] });
     const on = sanitizeDataset(raw, { uniqueSkus: true });
     expect(on.rows.map((entry) => entry.Variant_SKU)).toEqual(["X-1", "X-1-2", "X-1-3"]);
-    expect(on.report.skuChanges.map((change) => change.row)).toEqual([2, 3]);
+    expect(on.report.skuChanges.map((change) => change.row)).toEqual([3, 4]);
   });
 
   it("with the switch on, every SKU in the file is unique, whatever the file looks like", () => {
@@ -532,7 +558,7 @@ describe("the warnings list", () => {
     const warning = warningOf(report.warnings, "non_numeric_stock");
     expect(MAX_WARNING_ROWS).toBe(10);
     expect(warning?.count).toBe(25);
-    expect(warning?.rows).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10]);
+    expect(warning?.rows).toEqual([2, 3, 4, 5, 6, 7, 8, 9, 10, 11]);
     expect(warning?.details).toHaveLength(10);
   });
 
@@ -543,7 +569,7 @@ describe("the warnings list", () => {
   it("puts the problems that break an import before the notes about what was fixed", () => {
     const { report } = sanitizeDataset([
       row({ title: "Tee", sku: "A", price: "9 Kč", stock: "x", options: sizeColor("S", "R") }),
-      row({ title: "Tee", sku: "A", price: "9 Kč", stock: "x", options: sizeColor("S", "R") }),
+      row({ title: "Tee", sku: "A", price: "10 Kč", stock: "x", options: sizeColor("S", "R") }),
     ]);
     expect(kindsOf(report.warnings)).toEqual(["duplicate_variant", "duplicate_sku_in_product", "sku_changed", "non_numeric_stock", "currency_symbol_in_price"]);
   });

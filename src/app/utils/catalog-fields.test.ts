@@ -21,8 +21,35 @@ describe("parseStock", () => {
     expect(parseStock(input)).toEqual({ quantity: null, problem: "blank" });
   });
 
-  it.each(["skladem", "In stock", "-3", "5+", "1.5", "1e3", "N/A", "ca. 5", "9999999999"])("%j is not a stock count", (input) => {
+  it.each(["skladem", "In stock", "in stock", "Available", "-3", "<5", "Low", "1.5", "1e3", "N/A", "TBC", "ca. 5", "9999999999", ">99999999999"])("%j is not a stock count: nothing is made up", (input) => {
     expect(parseStock(input)).toEqual({ quantity: null, problem: "not_a_number" });
+  });
+
+  it.each([" 20 ", "  76   ", "0", "1 200"])("%j is the quantity it says, exactly", (input) => {
+    expect(parseStock(input)).toEqual({ quantity: Number(input.replace(/\s/g, "")), problem: null });
+  });
+
+  it.each(["Out of stock", "out of stock", "OUT OF STOCK", "Sold out", "No stock", "vyprodáno", "není skladem", "ausverkauft", "épuisé", "agotado", "brak"])("%j means none left: 0, and it is not a problem", (input) => {
+    expect(parseStock(input)).toEqual({ quantity: 0, problem: null });
+  });
+
+  it.each([
+    [">100", 100],
+    ["> 100", 100],
+    [">=50", 50],
+    ["≥ 25", 25],
+    ["100+", 100],
+    ["5+", 5],
+    ["over 100", 100],
+    ["More than 1 000", 1000],
+    ["at least 12", 12],
+  ])("%j is at least %i: written as that number, marked approximate", (input, quantity) => {
+    expect(parseStock(input)).toEqual({ quantity, problem: null, approximate: true });
+  });
+
+  it("a plain number is never marked approximate", () => {
+    expect(parseStock("100")).not.toHaveProperty("approximate");
+    expect(parseStock("Out of stock")).not.toHaveProperty("approximate");
   });
 });
 

@@ -11,8 +11,13 @@ import type {
   TitleCasing,
   WarningKind,
 } from "../types/csv";
-import { checkBarcode, cleanTags, currencyCode, currencyInPrice, parseStock, parseWeight } from "./catalog-fields";
+import { compactKey } from "./header-match";
+import { checkBarcode, cleanTags, currencyCode, currencyInPrice, parseStock, parseWeight, priceFromCost } from "./catalog-fields";
 import { isPlaceholderValue } from "./placeholder-values";
+import { mergeEquivalentSizes, possibleAbbreviations, unifyCase } from "./option-values";
+import { spreadsheetRow } from "./row-numbers";
+import { summaryLabel, summaryRowReason } from "./summary-rows";
+import { TECH_MIXED, TECH_UPPER } from "./tech-terms";
 
 /* -------------------------------------------------------------------------- */
 /*  Low-level helpers                                                          */
@@ -143,6 +148,10 @@ const MIXED_CASE = new Map<string, string>([
   ["bluetooth", "Bluetooth"],
   ["android", "Android"],
 ]);
+
+// Technical terms (see tech-terms.ts) join the tables above, so Title Case and sentence case both keep GaN, ANC, OLED, PoE ...
+for (const word of TECH_UPPER) KEEP_UPPER.add(word);
+for (const [word, spelling] of TECH_MIXED) MIXED_CASE.set(word, spelling);
 
 const UNIT_FORMAT = new Map<string, string>([
   ["ml", "ml"], ["cl", "cl"], ["l", "L"], ["g", "g"], ["kg", "kg"], ["mg", "mg"],
@@ -363,11 +372,28 @@ export function toSentenceCaseTitle(text: string): string {
     const whole = MIXED_CASE.get(tokens[index].toLowerCase().replace(/[-–—]/g, ""));
     let token = whole !== undefined && pieces.length > 1 ? whole : results.map((result) => result.text).join("");
     if (first && results[0].lowered) token = token.charAt(0).toUpperCase() + token.slice(1);
-    if (/\p{L}/u.test(token)) first = false;
+    if (/[\p{L}\p{N}]/u.test(token)) first = false; // a title that starts with a number has nothing to capitalize
     words.push(token);
     index++;
   }
   return words.join(" ");
+}
+
+/**
+ * A brand written the way the vendor column writes it ("ProGlow™", "AeroVent"), for the start of an ALL CAPS title. Only a
+ * vendor with some lower case letters has a spelling to go by: "TECH-IMPORT" says nothing about how the brand is written.
+ */
+export function brandSpelling(vendor: string | undefined): string {
+  const brand = cleanWhitespace(decodeEntities(vendor ?? ""));
+  return brand !== "" && hasLower(brand) ? brand : "";
+}
+
+/** `cased` with its first words replaced by `brand`, when the title STARTS with that brand (in any case). */
+function withBrand(text: string, cased: string, brand: string): string {
+  const brandWords = brand.split(" ");
+  const words = text.split(" ");
+  if (words.length < brandWords.length || !brandWords.every((word, index) => words[index].toLowerCase() === word.toLowerCase())) return cased;
+  return [...brandWords, ...cased.split(" ").slice(brandWords.length)].join(" ");
 }
 
 /**
@@ -376,13 +402,16 @@ export function toSentenceCaseTitle(text: string): string {
  *    ("Blue T-Shirt", "iPhone Case") are left alone.
  *  - "sentence": every title is put in sentence case (see toSentenceCaseTitle).
  *  - "keep": the case is as supplied.
+ * `brand` (see brandSpelling): when an ALL CAPS title starts with the brand, the brand keeps its own spelling:
+ * "PROGLOW™ 20000MAH POWER BANK" with the vendor "ProGlow™" is "ProGlow™ 20000mAh Power Bank", not "Proglow™ ...".
  */
-export function normalizeTitle(input: string, casing: TitleCasing = "title"): string {
+export function normalizeTitle(input: string, casing: TitleCasing = "title", brand = ""): string {
   const withoutTags = input.replace(/<\/?[a-zA-Z][^>]*>/g, " ");
   const text = cleanWhitespace(decodeEntities(withoutTags));
   if (text === "" || casing === "keep") return text;
-  if (casing === "sentence") return toSentenceCaseTitle(text);
-  return needsRecase(text) ? toTitleCase(text) : text;
+  const shouting = hasUpper(text) && !hasLower(text);
+  const cased = casing === "sentence" ? toSentenceCaseTitle(text) : needsRecase(text) ? toTitleCase(text) : text;
+  return brand !== "" && shouting ? withBrand(text, cased, brand) : cased;
 }
 
 /** The first `count` different titles of a file, as supplied (cleaned of markup) and as they come out, to show what a casing does. */
@@ -827,8 +856,6 @@ export function normalizeSku(input: string): string {
 /*  6. Full dataset pipeline                                                   */
 /* -------------------------------------------------------------------------- */
 
-const FALLBACK_TITLE = "Untitled Product";
-
 /** How many row numbers a warning lists. The count next to them is always the full count. */
 export const MAX_WARNING_ROWS = 10;
 
@@ -854,6 +881,7 @@ function emptyShopifyRow(handle: string): CleanedShopifyRow {
     Variant_Inventory_Tracker: "",
     Variant_Inventory_Qty: "",
     Variant_Barcode: "",
+    Cost_Per_Item: "",
     Image_Position: "",
   };
 }
@@ -906,7 +934,7 @@ function cleanLabel(input: string | undefined, casing: TitleCasing = "title"): s
 interface PreparedRow {
   /** 0-based position in the file. */
   index: number;
-  /** Row number as the person sees it: 1-based, the header row not counted. */
+  /** Row number as the spreadsheet shows it: the header is row 1, the first product row is row 2, blank rows counted. */
   number: number;
   raw: RawSupplierRow;
   /** The title as it will be written (cased by the person's choice). */
@@ -953,13 +981,14 @@ interface Product {
 }
 
 function prepareRows(rawRows: RawSupplierRow[], casing: TitleCasing): PreparedRow[] {
-  const prepared: PreparedRow[] = rawRows.map((raw, index) => {
-    const baseTitle = normalizeTitle(raw.title);
+  return rawRows.map((raw, index) => {
+    const brand = brandSpelling(raw.vendor);
+    const baseTitle = normalizeTitle(raw.title, "title", brand);
     return {
       index,
-      number: index + 1,
+      number: raw.sourceRow ?? spreadsheetRow(index),
       raw,
-      title: casing === "title" ? baseTitle : normalizeTitle(raw.title, casing),
+      title: casing === "title" ? baseTitle : normalizeTitle(raw.title, casing, brand),
       baseTitle,
       titleKey: baseTitle.toLowerCase(),
       suppliedHandle: raw.handle ? generateHandle(raw.handle) : "",
@@ -969,19 +998,66 @@ function prepareRows(rawRows: RawSupplierRow[], casing: TitleCasing): PreparedRo
       codeText: "",
     };
   });
+}
 
+/** What ties the rows of a product together: a product-code column if the file has one, else a SKU the variants share. */
+function assignCodes(rows: PreparedRow[], rawRows: RawSupplierRow[]): void {
   if (rawRows.some((raw) => raw.productCode !== undefined)) {
-    for (const row of prepared) {
+    for (const row of rows) {
       row.codeText = cleanWhitespace(emptyIfPlaceholder(decodeEntities(row.raw.productCode ?? "")));
       row.code = row.codeText.toLowerCase();
     }
-  } else if (skuIsProductCode(prepared)) {
-    for (const row of prepared) {
+  } else if (skuIsProductCode(rows)) {
+    for (const row of rows) {
       row.codeText = row.sku;
       row.code = row.sku.toLowerCase();
     }
   }
-  return prepared;
+}
+
+/** A row that is not a product: a summary line, or the same as an earlier row. */
+interface DroppedRow {
+  row: PreparedRow;
+  reason: "summary" | "duplicate";
+  detail: string;
+}
+
+/** Every cell of a row as a trimmed string, so two rows with the same cells have the same signature. */
+function exactSignature(raw: RawSupplierRow): string {
+  const cells = Object.entries(raw)
+    .filter(([key, value]) => key !== "options" && key !== "sourceRow" && key !== "firstCell" && value !== undefined)
+    .map(([key, value]) => `${key}=${String(value).trim()}`)
+    .sort();
+  const options = (raw.options ?? []).map((option) => `${option.name.trim()}=${option.value.trim()}`);
+  return JSON.stringify([cells, options]);
+}
+
+/**
+ * Leaves out what is not a product: summary lines ("TOTAL,,12345.67"), always; and, when asked, any row whose every cell
+ * equals that of an earlier row (the first one stays).
+ */
+function dropRows(rows: PreparedRow[], removeDuplicates: boolean): { active: PreparedRow[]; dropped: DroppedRow[] } {
+  const active: PreparedRow[] = [];
+  const dropped: DroppedRow[] = [];
+  const seen = new Map<string, PreparedRow>();
+  for (const row of rows) {
+    const summary = summaryRowReason(row.raw);
+    if (summary !== null) {
+      dropped.push({ row, reason: "summary", detail: summary === "label" ? quoted(summaryLabel(row.raw)) : "only numbers, no product" });
+      continue;
+    }
+    if (removeDuplicates) {
+      const signature = exactSignature(row.raw);
+      const earlier = seen.get(signature);
+      if (earlier !== undefined) {
+        dropped.push({ row, reason: "duplicate", detail: `same as row ${earlier.number}` });
+        continue;
+      }
+      seen.set(signature, row);
+    }
+    active.push(row);
+  }
+  return { active, dropped };
 }
 
 /**
@@ -1066,7 +1142,38 @@ function groupProducts(rows: PreparedRow[], slots: boolean[] | null): Product[] 
       products.push(current);
     }
   }
-  return products;
+  return joinApartVariants(products);
+}
+
+/**
+ * A product's variants are not always together: other rows can sit between them. Rows that belong to an earlier product are moved
+ * up to it (it keeps its first position in the file):
+ *  - same product code AND same title (the file groups by code): a combination the product already has is reported as a duplicate
+ *    variant like any other. Rows with the same code but another title are another product;
+ *  - a row with a handle and NO title (the variant-row style of a Shopify file) whose handle an earlier product has: a title that
+ *    is missing contradicts nothing, and the alternative is a product with no title. Rows WITH a title stay separate products.
+ * (A code copied from the product above cannot make two DIFFERENT titles one product, but two rows that agree on code AND title do agree.)
+ */
+function joinApartVariants(products: Product[]): Product[] {
+  const homes = new Map<string, Product>();
+  const kept: Product[] = [];
+  for (const product of products) {
+    const byCode = product.suppliedHandle === "" && product.code !== "" && product.titleKey !== "" ? `code\u0000${product.code}\u0000${product.titleKey}` : "";
+    const byHandle = product.suppliedHandle !== "" && product.titleKey === "" ? `handle\u0000${product.suppliedHandle}` : "";
+    const key = byCode || byHandle;
+    const home = key === "" ? undefined : homes.get(key);
+    if (home !== undefined) {
+      home.variants.push(...product.variants);
+      for (const combination of product.combinations) home.combinations.add(combination);
+      home.hasOptions = home.hasOptions || product.hasOptions;
+      continue;
+    }
+    kept.push(product);
+    // The product that owns a handle or a code-and-title is the first one that has it, and only a product WITH a title can own a handle.
+    if (byCode !== "") homes.set(byCode, product);
+    if (product.suppliedHandle !== "" && product.titleKey !== "") homes.set(`handle\u0000${product.suppliedHandle}`, product);
+  }
+  return kept;
 }
 
 /**
@@ -1093,11 +1200,17 @@ function chooseOptionSlots(rows: PreparedRow[], products: Product[]): boolean[] 
   return inUse;
 }
 
-/** Rows, the option slots in use and the products, in the one place that works them out. */
-function structureOf(rawRows: RawSupplierRow[], casing: TitleCasing = "title"): { prepared: PreparedRow[]; slots: boolean[]; products: Product[] } {
+/** The rows, the ones left out, the option slots in use and the products, in the one place that works them out. */
+function structureOf(
+  rawRows: RawSupplierRow[],
+  casing: TitleCasing = "title",
+  removeDuplicates = true,
+): { prepared: PreparedRow[]; active: PreparedRow[]; dropped: DroppedRow[]; slots: boolean[]; products: Product[] } {
   const prepared = prepareRows(rawRows, casing);
-  const slots = chooseOptionSlots(prepared, groupProducts(prepared, null));
-  return { prepared, slots, products: groupProducts(prepared, slots) };
+  const { active, dropped } = dropRows(prepared, removeDuplicates);
+  assignCodes(active, rawRows);
+  const slots = chooseOptionSlots(active, groupProducts(active, null));
+  return { prepared, active, dropped, slots, products: groupProducts(active, slots) };
 }
 
 /* -------------------------------------------------------------------------- */
@@ -1123,10 +1236,14 @@ export function suggestUniqueSkus(rawRows: RawSupplierRow[]): boolean {
 
 /** The options a file starts with: SKUs made unique when its variants share one, products as drafts, titles in Title Case. */
 export function defaultSanitizeOptions(rawRows: RawSupplierRow[]): SanitizeOptions {
-  return { uniqueSkus: suggestUniqueSkus(rawRows), status: "draft", casing: "title" };
+  return { uniqueSkus: suggestUniqueSkus(rawRows), ...FIXED_DEFAULTS };
 }
 
 const CASINGS: readonly TitleCasing[] = ["title", "sentence", "keep"];
+
+/** The options that do not depend on the file. */
+const FIXED_DEFAULTS = { status: "draft", casing: "title", removeDuplicates: true, noRetailPrice: "empty", markupPercent: 100 } as const;
+const MAX_MARKUP_PERCENT = 10_000;
 
 /**
  * `defaults` with whatever of `saved` is valid laid over it. A file parked before the tool had an option (or by a build
@@ -1137,6 +1254,12 @@ export function mergeSanitizeOptions(defaults: SanitizeOptions, saved?: Partial<
     uniqueSkus: typeof saved?.uniqueSkus === "boolean" ? saved.uniqueSkus : defaults.uniqueSkus,
     status: saved?.status === "active" || saved?.status === "draft" ? saved.status : defaults.status,
     casing: saved?.casing !== undefined && CASINGS.includes(saved.casing) ? saved.casing : defaults.casing,
+    removeDuplicates: typeof saved?.removeDuplicates === "boolean" ? saved.removeDuplicates : defaults.removeDuplicates,
+    noRetailPrice: saved?.noRetailPrice === "markup" || saved?.noRetailPrice === "empty" ? saved.noRetailPrice : defaults.noRetailPrice,
+    markupPercent:
+      typeof saved?.markupPercent === "number" && Number.isFinite(saved.markupPercent) && saved.markupPercent >= 0
+        ? Math.min(saved.markupPercent, MAX_MARKUP_PERCENT)
+        : defaults.markupPercent,
   };
 }
 
@@ -1198,56 +1321,78 @@ function resolveSkus(products: Product[], slots: boolean[], uniqueSkus: boolean,
 /*  Collecting what is worth telling the person                                */
 /* -------------------------------------------------------------------------- */
 
-/** Per kind of problem: how many rows, which (the first MAX_WARNING_ROWS) and one line about each of those. */
+/**
+ * Per kind of problem: how many rows, which (the first MAX_WARNING_ROWS, by row number: rows are not always found in the order
+ * of the file, because variants that were apart are written with their product) and one line about each of those.
+ */
 class Findings {
-  private readonly groups = new Map<WarningKind, { count: number; rows: number[]; details: string[] }>();
+  private readonly groups = new Map<WarningKind, Array<{ row: number; detail: string }>>();
 
   add(kind: WarningKind, row: number, detail = ""): void {
-    const group = this.groups.get(kind) ?? { count: 0, rows: [], details: [] };
-    group.count++;
-    if (group.rows.length < MAX_WARNING_ROWS) {
-      group.rows.push(row);
-      group.details.push(detail);
-    }
-    this.groups.set(kind, group);
+    const entries = this.groups.get(kind) ?? [];
+    entries.push({ row, detail });
+    this.groups.set(kind, entries);
   }
 
   get(kind: WarningKind): { count: number; rows: number[]; details: string[] } | undefined {
-    return this.groups.get(kind);
+    const entries = this.groups.get(kind);
+    if (!entries) return undefined;
+    const listed = [...entries].sort((a, b) => a.row - b.row).slice(0, MAX_WARNING_ROWS);
+    return { count: entries.length, rows: listed.map((entry) => entry.row), details: listed.map((entry) => entry.detail) };
   }
 }
 
 export interface SanitizeResult {
   rows: CleanedShopifyRow[];
   report: SanitizeReport;
-  /** rowStarts[i] is where source row i begins in `rows`; it ends where source row i + 1 begins. */
+  /**
+   * rowStarts[i] is where source row i begins in `rows` (its rows run up to the next start), or -1 when the row is not in the
+   * output: a summary line, an exact duplicate, a row with no title. Rows of one product are written together, so the starts are not
+   * always in the order of the file.
+   */
   rowStarts: number[];
 }
 
 /**
  * Cleans every supplier row and flattens the result into Shopify import rows.
  *
- * Products. Rows are grouped by what the file offers, and only ever with the rows right next to them:
+ * Rows that are not products are left out, and said so: summary lines ("TOTAL,,12345.67"), rows that repeat an earlier row in
+ * every cell (unless "Remove exact duplicates" is off), and rows with no title that belong to no product.
+ *
+ * Products. Rows are grouped by what the file offers:
  *  - a handle column: the same handle in a row of the same product;
- *  - a product-code column (or a SKU column that variants share, see skuIsProductCode): the same code with the same title;
+ *  - a product-code column (or a SKU column that variants share, see skuIsProductCode): the same code with the same title, even
+ *    when other rows sit between them (the product keeps its first position);
  *  - neither: the same title next to each other, when the variants differ by an option value.
- * The same title anywhere else (another product code, or not next to the product) is a separate product with its own handle
- * (the second gets -2, the third -3) and a warning. A later row is never merged into an earlier, non-adjacent product.
+ * The same title under another product code, or again further down without a combination of its own, is a separate product with
+ * its own handle (the second gets -2, the third -3) and a warning.
  *
  * Output. A product with N images becomes N rows: the first carries the product data, the others only Handle, Image Src and
  * Image Position. Vendor, Type, Tags, Status and the option names are product-level, so they are on the first row only; each
- * variant row has its own option values, price, SKU, barcode, weight and stock. Images are written once per product and
+ * variant row has its own option values, price, cost, SKU, barcode, weight and stock. Images are written once per product and
  * numbered 1, 2, 3 in the order they appear.
  *
- * Nothing the file says is dropped without being counted: every row that lost something (a stock like "skladem", an invalid
- * EAN, a link that is not http(s), a placeholder description) is listed in report.warnings.
+ * Nothing the file says is dropped without being counted: every row that lost something (a stock like "In stock", an invalid
+ * EAN, a link that is not http(s), a placeholder description, a price like "TBC") is listed in report.warnings.
  */
 export function sanitizeDataset(rawRows: RawSupplierRow[], requested: Partial<SanitizeOptions> = {}): SanitizeResult {
   const startedAt = now();
-  const casing = mergeSanitizeOptions({ uniqueSkus: false, status: "draft", casing: "title" }, requested).casing;
-  const { prepared, slots, products } = structureOf(rawRows, casing);
-  const options = mergeSanitizeOptions({ uniqueSkus: variantsShareOneSku(products), status: "draft", casing }, requested);
+  const early = mergeSanitizeOptions({ uniqueSkus: false, ...FIXED_DEFAULTS }, requested);
+  const structure = structureOf(rawRows, early.casing, early.removeDuplicates);
+  const { active, dropped, slots } = structure;
   const findings = new Findings();
+
+  /* ---- rows that are not products ---- */
+  for (const { row, reason, detail } of dropped) findings.add(reason === "summary" ? "summary_rows" : "duplicate_row", row.number, detail);
+
+  // A product without any title cannot be imported (Shopify needs one) and is not given a made-up one: it is left out, and said so.
+  const products = structure.products.filter((product) => {
+    if (product.titleKey !== "") return true;
+    for (const { row } of product.variants) findings.add("untitled_row", row.number, row.sku !== "" ? `SKU ${row.sku}` : row.codeText !== "" ? `code ${row.codeText}` : "no title and no code");
+    return false;
+  });
+  const untitledRows = structure.products.reduce((sum, product) => sum + (product.titleKey === "" ? product.variants.length : 0), 0);
+  const options = mergeSanitizeOptions({ uniqueSkus: variantsShareOneSku(products), ...FIXED_DEFAULTS }, requested);
 
   const report: SanitizeReport = {
     sourceRows: rawRows.length,
@@ -1263,12 +1408,54 @@ export function sanitizeDataset(rawRows: RawSupplierRow[], requested: Partial<Sa
     extraImageRows: 0,
     invalidImagesDropped: 0,
     duplicateImagesRemoved: 0,
+    rowsDropped: dropped.length + untitledRows,
     optionRows: 0,
     warnings: [],
     skuChanges: [],
     options,
     processingMs: 0,
   };
+
+  /* ---- option values: one spelling per value in a column, and the same size written two ways made one spelling for the FILE ---- */
+  for (let slot = 0; slot < OPTION_SLOTS; slot++) {
+    if (!slots[slot]) continue;
+    const variants = products.flatMap((product) => product.variants);
+    const unified = unifyCase(variants.map((variant) => variant.values[slot]));
+    variants.forEach((variant, index) => {
+      variant.values[slot] = unified[index];
+    });
+  }
+  // One canonical spelling per size, chosen over the whole file and not per product, so one shop does not get "Small" in one
+  // product and "S" in another. Values are compared only within an option of the same NAME ("Size" in every product that has
+  // one), because the same word means something else elsewhere: "Medium" in a "Roast" option is not a size.
+  const sameName = new Map<string, Array<{ variant: Variant; slot: number }>>();
+  for (const product of products) {
+    for (let slot = 0; slot < OPTION_SLOTS; slot++) {
+      if (!slots[slot]) continue;
+      const name = cleanOptionName(product.variants[0].row.raw.options?.[slot]?.name ?? "");
+      const key = compactKey(name) || `option ${slot + 1}`;
+      sameName.set(key, [...(sameName.get(key) ?? []), ...product.variants.map((variant) => ({ variant, slot }))]);
+    }
+  }
+  for (const members of sameName.values()) {
+    const merged = mergeEquivalentSizes(members.map(({ variant, slot }) => variant.values[slot]));
+    for (const change of merged.changes) {
+      const { variant, slot } = members[change.index];
+      variant.values[slot] = change.to;
+      findings.add("option_values_merged", variant.row.number, `${change.from} -> ${change.to}`);
+    }
+  }
+  for (const product of products) {
+    for (let slot = 0; slot < OPTION_SLOTS; slot++) {
+      if (!slots[slot]) continue;
+      // Abbreviations are only pointed out: whether "Blk" is "Black" is for the person to say.
+      for (const { short, long } of possibleAbbreviations(product.variants.map((variant) => variant.values[slot]))) {
+        for (const variant of product.variants) {
+          if (variant.values[slot] === short) findings.add("possible_duplicate_values", variant.row.number, `"${short}" may be "${long}" (same product)`);
+        }
+      }
+    }
+  }
 
   /* ---- handles: one per product, the same title again gets -2, -3 ---- */
   const usedHandles = new Map<string, number>();
@@ -1282,7 +1469,7 @@ export function sanitizeDataset(rawRows: RawSupplierRow[], requested: Partial<Sa
     product.handle = reserveUniqueHandle(baseHandle, usedHandles);
     if (product.handle !== baseHandle) report.duplicateHandlesResolved++;
 
-    // The same title (or, for a file with a handle column, the same handle) again, anywhere but right next to its product: a
+    // The same title (or, for a file with a handle column, the same handle) again, anywhere but together with its product: a
     // separate product, said out loud, never a silent merge into the earlier one.
     const sameTitle = product.titleKey === "" ? undefined : firstProductWithTitle.get(product.titleKey);
     const sameHandle = product.suppliedHandle === "" ? undefined : firstProductWithHandle.get(product.suppliedHandle);
@@ -1293,6 +1480,15 @@ export function sanitizeDataset(rawRows: RawSupplierRow[], requested: Partial<Sa
     }
     if (product.titleKey !== "" && sameTitle === undefined) firstProductWithTitle.set(product.titleKey, product);
     if (product.suppliedHandle !== "" && sameHandle === undefined) firstProductWithHandle.set(product.suppliedHandle, product);
+
+    // Variants that were not next to their product in the file (other rows sat between them, even ones that were then left out
+    // as duplicates): they are written with it.
+    // The product's own rows run from its first row to the first break; everything after the break was somewhere else.
+    let together = true;
+    product.variants.forEach((variant, position) => {
+      if (position > 0 && variant.row.index !== product.variants[position - 1].row.index + 1) together = false;
+      if (!together) findings.add("variants_apart", variant.row.number, `joins ${quoted(product.title)} (row ${first.number}), which keeps its first position`);
+    });
   }
 
   /* ---- codes that were copied down from the product before ---- */
@@ -1325,27 +1521,28 @@ export function sanitizeDataset(rawRows: RawSupplierRow[], requested: Partial<Sa
   for (const change of changes) findings.add("sku_changed", change.row, `${change.from} -> ${change.to}`);
 
   /* ---- currency (not written to the file, but a file must not mix them) ---- */
-  // A row's currency comes from the Currency column and from a symbol in its price. When they disagree the row names both.
-  const currenciesOfRow: string[][] = [];
+  // A row's currency comes from the Currency column and from a symbol in its price (or its cost). When they disagree the row names both.
+  const currenciesOfRow = new Map<number, string[]>();
   const currencyCounts = new Map<string, number>();
-  for (const row of prepared) {
-    const inPrice = currencyInPrice(row.raw.price);
-    if (inPrice !== "") findings.add("currency_symbol_in_price", row.number, row.raw.price.trim());
+  for (const row of active) {
+    const symbolInPrice = currencyInPrice(row.raw.price);
+    const symbolInCost = currencyInPrice(row.raw.cost ?? "");
+    if (symbolInPrice !== "" || symbolInCost !== "") findings.add("currency_symbol_in_price", row.number, symbolInPrice !== "" ? row.raw.price.trim() : (row.raw.cost ?? "").trim());
     const inColumn = row.raw.currency === undefined ? "" : currencyCode(row.raw.currency);
-    const named = [...new Set([inColumn, inPrice].filter((code) => code !== ""))];
-    currenciesOfRow.push(named);
+    const named = [...new Set([inColumn, symbolInPrice, symbolInCost].filter((code) => code !== ""))];
+    currenciesOfRow.set(row.index, named);
     for (const code of named) currencyCounts.set(code, (currencyCounts.get(code) ?? 0) + 1);
   }
   if (currencyCounts.size > 1) {
     const dominant = [...currencyCounts.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))[0][0];
-    for (const row of prepared) {
-      const others = currenciesOfRow[row.index].filter((code) => code !== dominant);
+    for (const row of active) {
+      const others = (currenciesOfRow.get(row.index) ?? []).filter((code) => code !== dominant);
       if (others.length > 0) findings.add("mixed_currencies", row.number, `${others.join(", ")} (most rows are ${dominant})`);
     }
   }
 
   /* ---- placeholder descriptions ---- */
-  for (const row of prepared) {
+  for (const row of active) {
     if (row.raw.description.trim() !== "" && isPlaceholderValue(row.raw.description)) {
       findings.add("placeholder_description", row.number, quoted(cleanWhitespace(decodeEntities(row.raw.description.replace(/<[^>]*>/g, " ")))));
     }
@@ -1353,12 +1550,14 @@ export function sanitizeDataset(rawRows: RawSupplierRow[], requested: Partial<Sa
 
   /* ---- write the rows ---- */
   const rows: CleanedShopifyRow[] = [];
-  const rowStarts: number[] = [];
+  const rowStarts: number[] = new Array(rawRows.length).fill(-1);
+  // Only a file that has prices at all can be said to lack them for some rows (a file without a price column gets the column warning).
+  const fileHasPrices = active.some((row) => row.raw.price.trim() !== "" || (row.raw.cost ?? "").trim() !== "");
 
   for (const product of products) {
     const handle = product.handle;
     const first = product.variants[0].row;
-    const title = product.title || FALLBACK_TITLE;
+    const title = product.title;
     if (title !== first.raw.title) report.titlesFixed++;
     report.variantRows += product.variants.length - 1;
 
@@ -1392,7 +1591,7 @@ export function sanitizeDataset(rawRows: RawSupplierRow[], requested: Partial<Sa
     product.variants.forEach((variant, variantIndex) => {
       const { row: source, values } = variant;
       const raw = source.raw;
-      rowStarts.push(rows.length);
+      rowStarts[source.index] = rows.length;
 
       const out = emptyShopifyRow(handle);
       if (variantIndex === 0) {
@@ -1411,9 +1610,19 @@ export function sanitizeDataset(rawRows: RawSupplierRow[], requested: Partial<Sa
       out.Option3_Value = values[2];
       if (values.some((value) => value !== "")) report.optionRows++;
 
-      const price = normalizePrice(raw.price);
-      if (raw.price.trim() !== "" && price !== raw.price) report.pricesNormalized++;
+      // Prices. Variant Price is the RETAIL price only; the wholesale price goes to Cost per item. A variant without a retail
+      // price (blank, TBC, POA ...) stays without one, unless the person asked for a price worked out from the wholesale price.
+      const retail = normalizePrice(raw.price);
+      if (raw.price.trim() !== "" && retail !== raw.price) report.pricesNormalized++;
+      const cost = raw.cost !== undefined ? normalizePrice(raw.cost) : "";
+      let price = retail;
+      if (price === "" && options.noRetailPrice === "markup" && cost !== "") {
+        price = priceFromCost(cost, options.markupPercent);
+        if (price !== "") findings.add("price_from_cost", source.number, `${cost} + ${options.markupPercent}% = ${price}`);
+      }
       out.Variant_Price = price;
+      out.Cost_Per_Item = cost;
+      if (price === "" && fileHasPrices) findings.add("missing_price", source.number, `${raw.price.trim() === "" ? "(blank)" : quoted(raw.price.trim())}${cost !== "" ? `, wholesale ${cost}` : ""}`);
       out.Variant_SKU = skus[source.index];
 
       if (raw.stock !== undefined) {
@@ -1421,6 +1630,7 @@ export function sanitizeDataset(rawRows: RawSupplierRow[], requested: Partial<Sa
         if (stock.quantity !== null) {
           out.Variant_Inventory_Qty = String(stock.quantity);
           out.Variant_Inventory_Tracker = "shopify";
+          if (stock.approximate) findings.add("approximate_stock", source.number, `${quoted(cleanWhitespace(raw.stock))} written as ${stock.quantity} (at least)`);
         } else {
           findings.add("non_numeric_stock", source.number, stock.problem === "blank" ? "(blank)" : quoted(cleanWhitespace(raw.stock)));
         }
@@ -1509,10 +1719,30 @@ const UNIQUE_SKU_HINT = ' Switch on "Make SKUs unique per variant" to tell them 
 
 /** In the order the panel lists them: the problems that break an import first, the notes about what was fixed last. */
 const WARNING_ORDER: ReadonlyArray<readonly [WarningKind, WarningText]> = [
+  ["summary_rows", {
+    severity: "warning",
+    title: "Summary rows removed",
+    message: (n) => `${n.toLocaleString()} summary ${plural(n, "row", "rows")} removed. A line such as TOTAL, SUBTOTAL or COUNT, or a line with only numbers, is not a product, so ${plural(n, "it was", "they were")} left out.`,
+  }],
+  ["untitled_row", {
+    severity: "warning",
+    title: "Rows without a title",
+    message: (n) => `${n.toLocaleString()} ${plural(n, "row has", "rows have")} no title and could not be attached to any product, so ${plural(n, "it was", "they were")} left out. Shopify needs a title for every product, and none is made up.`,
+  }],
+  ["duplicate_row", {
+    severity: "warning",
+    title: "Exact duplicate rows removed",
+    message: (n) => `${n.toLocaleString()} exact duplicate ${plural(n, "row", "rows")} removed: every cell is the same as in an earlier row, which was kept. Switch off "Remove exact duplicates" to keep them.`,
+  }],
   ["split_product", {
     severity: "warning",
     title: "Same title, separate products",
     message: (n) => `${n.toLocaleString()} ${plural(n, "product has", "products have")} the same title (or handle) as an earlier product, under another product code or not next to it. Each was kept as its own product with its own handle: the second gets -2, the third -3. If they are really variants of one product, put them next to each other and give them the same product code.`,
+  }],
+  ["variants_apart", {
+    severity: "warning",
+    title: "Variants were not next to their product",
+    message: (n) => `${n.toLocaleString()} ${plural(n, "variant was", "variants were")} not next to ${plural(n, "its", "their")} product: other rows sat in between. Same product code and same title, so ${plural(n, "it was", "they were")} grouped with the product, which keeps its first position.`,
   }],
   ["sku_copied", {
     severity: "warning",
@@ -1534,6 +1764,16 @@ const WARNING_ORDER: ReadonlyArray<readonly [WarningKind, WarningText]> = [
     title: "Option named differently",
     message: (n) => `${n.toLocaleString()} variant ${plural(n, "row names", "rows name")} an option differently from the product's first row. Shopify takes the names from the first row, so that is what was written.`,
   }],
+  ["option_values_merged", {
+    severity: "info",
+    title: "Option values merged",
+    message: (n) => `${n.toLocaleString()} option ${plural(n, "value was", "values were")} the same size written two ways (for example S and Small) and ${plural(n, "was", "were")} changed to the spelling the whole file uses most, so every product says the same.`,
+  }],
+  ["possible_duplicate_values", {
+    severity: "info",
+    title: "Possible duplicates",
+    message: (n) => `${n.toLocaleString()} option ${plural(n, "value looks", "values look")} like an abbreviation of another value of the same product (for example "Blk" and "Black"). Nothing was changed: check whether they are the same.`,
+  }],
   ["duplicate_sku_in_product", {
     severity: "warning",
     title: "Duplicate SKUs within a product",
@@ -1551,6 +1791,16 @@ const WARNING_ORDER: ReadonlyArray<readonly [WarningKind, WarningText]> = [
     title: "SKUs made unique",
     message: (n) => `${n.toLocaleString()} ${plural(n, "SKU was", "SKUs were")} changed so that every variant has its own.`,
   }],
+  ["missing_price", {
+    severity: "warning",
+    title: "Variants without a price",
+    message: (n, options) => `${n.toLocaleString()} ${plural(n, "variant has", "variants have")} no retail price (blank, TBC, POA ...), so Variant Price is empty for ${plural(n, "it", "them")}.${options.noRetailPrice === "markup" ? " No wholesale price to work one out from, either." : ' Set the price in Shopify, or choose "use wholesale x markup" in the export options.'}`,
+  }],
+  ["price_from_cost", {
+    severity: "info",
+    title: "Prices worked out from wholesale",
+    message: (n, options) => `${n.toLocaleString()} ${plural(n, "price was", "prices were")} worked out as the wholesale price plus ${options.markupPercent}% because the retail price was missing.`,
+  }],
   ["invalid_ean", {
     severity: "warning",
     title: "Invalid EAN",
@@ -1561,10 +1811,15 @@ const WARNING_ORDER: ReadonlyArray<readonly [WarningKind, WarningText]> = [
     title: "EAN check digit does not match",
     message: (n) => `${n.toLocaleString()} ${plural(n, "barcode has", "barcodes have")} the right length but a last digit that does not match the others (the GS1 check digit), so ${plural(n, "it may contain", "they may contain")} a typo. ${plural(n, "It was", "They were")} written as supplied: check ${plural(n, "it", "them")} against the product.`,
   }],
+  ["approximate_stock", {
+    severity: "warning",
+    title: "Approximate stock",
+    message: (n) => `${n.toLocaleString()} ${plural(n, "quantity was", "quantities were")} given as "more than ..." (for example ">100") and ${plural(n, "was", "were")} written as that number. The real stock is at least that, and may be higher.`,
+  }],
   ["non_numeric_stock", {
     severity: "warning",
     title: "Stock without a number",
-    message: (n) => `${n.toLocaleString()} ${plural(n, "variant has", "variants have")} a stock that is blank or not a whole number (for example "skladem"), so Variant Inventory Qty was left empty for ${plural(n, "it", "them")}.`,
+    message: (n) => `${n.toLocaleString()} ${plural(n, "variant has", "variants have")} a stock that is blank or not a whole number (for example "In stock" or "skladem"), so Variant Inventory Qty was left empty for ${plural(n, "it", "them")}.`,
   }],
   ["invalid_weight", {
     severity: "warning",
@@ -1632,8 +1887,9 @@ export function countFixes(report: SanitizeReport): number {
 }
 
 /**
- * Pairs the first `limit` supplier rows with their cleaned product row and the image-only rows that follow it,
- * for the before/after preview. `rowStarts` comes from sanitizeDataset, so this stays exact with variant rows.
+ * Pairs the first `limit` supplier rows that made it into the file with their cleaned row and the image-only rows that follow
+ * it, for the before/after preview. `rowStarts` comes from sanitizeDataset: a row that is not in the output (-1) is skipped, and
+ * a row's own rows run to the next start, wherever that is, because rows of one product are written together.
  */
 export function buildPreviewPairs(
   rawData: RawSupplierRow[],
@@ -1641,16 +1897,17 @@ export function buildPreviewPairs(
   rowStarts: number[],
   limit = 5,
 ): PreviewPair[] {
-  const count = Math.min(limit, rowStarts.length, rawData.length);
+  const starts = [...new Set(rowStarts.filter((start) => start >= 0))].sort((a, b) => a - b);
   const pairs: PreviewPair[] = [];
-  for (let i = 0; i < count; i++) {
+  for (let i = 0; i < Math.min(rowStarts.length, rawData.length) && pairs.length < limit; i++) {
     const start = rowStarts[i];
-    const end = i + 1 < rowStarts.length ? rowStarts[i + 1] : cleanedData.length;
+    if (start < 0) continue;
+    const next = starts.find((candidate) => candidate > start);
     const primary = cleanedData[start];
     pairs.push({
       raw: rawData[i],
       primary,
-      extraImageRows: cleanedData.slice(start + 1, end),
+      extraImageRows: cleanedData.slice(start + 1, next ?? cleanedData.length),
       isVariantRow: primary.Title === "",
     });
   }
@@ -1691,6 +1948,7 @@ const CATALOG_COLUMNS_AFTER_OPTIONS: ReadonlyArray<Column> = [
   { key: "Variant_Grams", header: "Variant Grams" },
   { key: "Variant_Inventory_Tracker", header: "Variant Inventory Tracker" },
   { key: "Variant_Inventory_Qty", header: "Variant Inventory Qty" },
+  { key: "Cost_Per_Item", header: "Cost per item" },
 ];
 
 /** The header of any column this tool can write, for the screens that name a field ("Variant Barcode"). */

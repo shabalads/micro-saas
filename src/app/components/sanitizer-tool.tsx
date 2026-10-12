@@ -366,7 +366,7 @@ export default function SanitizerTool() {
   const [trialMessage, setTrialMessage] = useState<{ tone: "warning" | "error"; text: string } | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   /** The two export switches (unique SKUs, import as active). They change the preview, the download and what the warnings say. */
-  const [options, setOptions] = useState<SanitizeOptions>({ uniqueSkus: false, status: "draft", casing: "title" });
+  const [options, setOptions] = useState<SanitizeOptions>({ uniqueSkus: false, status: "draft", casing: "title", removeDuplicates: true, noRetailPrice: "empty", markupPercent: 100 });
   /** Whether the file's variants share one SKU, which is why "unique SKUs" started switched on (for the hint next to it). */
   const [skusShared, setSkusShared] = useState(false);
   /** The report of the WHOLE file, once a download has produced it. Until then the warnings come from the free preview. */

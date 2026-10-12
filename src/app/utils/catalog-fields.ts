@@ -4,6 +4,7 @@
 // weight and tags. Each one is pure and says what it made of the cell, so the cleaner can keep the good values and
 // count the ones it could not use (a warning with row numbers) instead of silently dropping them.
 
+import { compactKey } from "./header-match";
 import { isPlaceholderValue } from "./placeholder-values";
 
 const collapse = (value: string): string => value.replace(/[\u0000-\u0008\u000E-\u001F​-‍﻿]/g, "").replace(/\s+/g, " ").trim();
@@ -15,21 +16,56 @@ const collapse = (value: string): string => value.replace(/[\u0000-\u0008\u000E-
 export interface StockResult {
   /** A whole number of items (0 included), or null when the cell gave none. */
   quantity: number | null;
-  /** Why there is no quantity: the cell was blank, or it held something that is not a count ("skladem", "-3", "5+"). */
+  /** Why there is no quantity: the cell was blank, or it held something that is not a count ("In stock", "N/A", "-3"). */
   problem: "blank" | "not_a_number" | null;
+  /** The number is a LOWER BOUND the cell gave (">100", "100+"): the real stock may be higher. Present only then. */
+  approximate?: true;
 }
 
 /** A count may carry a unit ("5 ks", "12 pcs") and thousands spaces ("1 200"), and a ".0" some spreadsheets add. */
 const STOCK_RE = /^\+?(\d{1,3}(?:[   ]\d{3})+|\d+)(?:[.,]0+)?(?:\s*(?:ks|kus|kusy|pcs?|stk|szt|units?|x)\.?)?$/i;
 
-/** "  5 " becomes 5. Blank, non-numeric ("skladem") and negative values give no quantity, and say which. */
+/** ">N", "over N", "more than N", "at least N" ... in the languages the file may be in. */
+const AT_LEAST_RE = /^(?:>=?|≥|over|above|more\s+than|at\s+least|min\.?|vice\s+nez|ponad|mehr\s+als|plus\s+de|mas\s+de)\s*(\d{1,3}(?:[   ]\d{3})+|\d+)\s*(?:ks|kus|pcs?|stk|szt|units?)?\.?$/i;
+const PLUS_RE = /^(\d{1,3}(?:[   ]\d{3})+|\d+)\s*\+$/;
+
+/** What a stock cell says when there is none. Compared in the compact form (no case, spaces, accents or punctuation). */
+const OUT_OF_STOCK = new Set(
+  [
+    "out of stock", "sold out", "no stock", "not in stock", "unavailable", "out-of-stock",
+    "vyprodano", "neni skladem", "neni na sklade", "nedostupne", "nie je skladom", "vypredane",
+    "brak", "brak w magazynie", "wyprzedane", "niedostepne",
+    "ausverkauft", "nicht auf lager", "nicht vorratig", "nicht verfugbar",
+    "epuise", "rupture de stock", "indisponible", "agotado", "sin stock", "sin existencias", "esaurito", "non disponibile", "esgotado",
+  ].map(compactKey),
+);
+
+const toQuantity = (digits: string): number | null => {
+  const quantity = Number(digits.replace(/[   ]/g, ""));
+  return Number.isSafeInteger(quantity) && quantity <= 999_999_999 ? quantity : null;
+};
+
+/**
+ * What a stock cell says, never more:
+ *  - a whole number ("  5 ", "0", "1 200", "5 ks") is that quantity;
+ *  - "Out of stock", "sold out", "vyprodáno" ... is 0;
+ *  - ">N", "N+", "over N" is N, marked approximate (the real stock is at least that);
+ *  - blank, "In stock", "N/A", "skladem", a negative number, anything else has no quantity: nothing is made up.
+ */
 export function parseStock(input: string): StockResult {
   const text = collapse(input);
   if (text === "") return { quantity: null, problem: "blank" };
+  if (OUT_OF_STOCK.has(compactKey(text))) return { quantity: 0, problem: null };
+
+  const atLeast = AT_LEAST_RE.exec(text) ?? PLUS_RE.exec(text);
+  if (atLeast) {
+    const quantity = toQuantity(atLeast[1]);
+    return quantity === null ? { quantity: null, problem: "not_a_number" } : { quantity, problem: null, approximate: true };
+  }
   const match = STOCK_RE.exec(text);
   if (!match) return { quantity: null, problem: "not_a_number" };
-  const quantity = Number(match[1].replace(/[   ]/g, ""));
-  return Number.isSafeInteger(quantity) && quantity <= 999_999_999 ? { quantity, problem: null } : { quantity: null, problem: "not_a_number" };
+  const quantity = toQuantity(match[1]);
+  return quantity === null ? { quantity: null, problem: "not_a_number" } : { quantity, problem: null };
 }
 
 /* -------------------------------------------------------------------------- */
@@ -169,4 +205,15 @@ export function cleanTags(input: string): string {
     tags.push(tag);
   }
   return tags.join(", ");
+}
+
+/* -------------------------------------------------------------------------- */
+/*  Price from cost                                                            */
+/* -------------------------------------------------------------------------- */
+
+/** A retail price worked out from the wholesale price plus a markup in percent: 100 doubles it. "" when there is no usable cost. */
+export function priceFromCost(cost: string, markupPercent: number): string {
+  const base = Number(cost);
+  if (cost === "" || !Number.isFinite(base) || !Number.isFinite(markupPercent) || markupPercent < 0) return "";
+  return (Math.round(base * (1 + markupPercent / 100) * 100) / 100).toFixed(2);
 }

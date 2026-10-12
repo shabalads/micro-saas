@@ -130,7 +130,9 @@ describe("broken quotes", () => {
     expect(rows[1].title).toBe("Broken title");
     expect(rows[2]).toMatchObject({ title: "Next", description: "fine" });
     expect(warnings.join(" ")).toMatch(/never closed/);
-    expect(warnings.join(" ")).toMatch(/row 2/);
+    // "2,Broken..." is the second product row, which is row 3 in a spreadsheet (the header is row 1)
+    expect(warnings.join(" ")).toMatch(/A quote in row 3 was never closed/);
+    expect(warnings.join(" ")).not.toMatch(/row 2\b/);
   });
 
   it("keeps a bare inch mark inside an unquoted cell as text, with no warning", () => {
@@ -150,14 +152,14 @@ describe("broken quotes", () => {
     const text = 'id,title\n1,"a\n2,"b\n3,"c\n4,ok\n';
     const { rows, warnings } = parseSupplierText(text);
     expect(rows.map((row) => row.id)).toEqual(["1", "2", "3", "4"]);
-    expect(warnings.join(" ")).toMatch(/3 quotes/);
+    expect(warnings.join(" ")).toMatch(/3 quotes in row 2, 3, 4 was never closed/);
   });
 
   it("gives up cleanly (and warns loudly) when the quotes are beyond repair", () => {
     const lines = ["id,title"];
     for (let i = 1; i <= 8; i++) lines.push(`${i},"broken ${i}`);
     const { warnings } = parseSupplierText(lines.join("\n") + "\n");
-    expect(warnings.join(" ")).toMatch(/still has an unclosed quote/);
+    expect(warnings.join(" ")).toMatch(/still has an unclosed quote at row 7\b/); // five repairs (rows 2-6), then the sixth broken row
   });
 });
 

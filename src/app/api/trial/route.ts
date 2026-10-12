@@ -22,8 +22,10 @@ import {
   claimTrial,
   findTrialForBrowser,
   getTrialSecret,
+  grantTestTrial,
   hashEmailIdentity,
   isBrowserId,
+  isTrialTester,
   normalizeEmail,
   readCookie,
 } from "../../utils/trial-service";
@@ -96,11 +98,16 @@ export async function POST(request: Request) {
   // Only an explicit true counts; a missing or truthy-looking value never subscribes anyone.
   const marketingEmail = payload.marketingOptIn === true ? person.email : null;
 
-  const outcome = await claimTrial(
-    supabase,
-    { emailHash: hashEmailIdentity(person.identity, secret), browserIds, fingerprint, marketingEmail },
-    async () => (await trialGrantLimiter.check(client)).allowed,
-  );
+  // Test mode (development only, see isTrialTester): a free file every time, earlier trials ignored, no marketing address kept.
+  const tester = isTrialTester(person.identity);
+  if (tester) console.warn("[trial] test mode: earlier free files are not checked for this address (TRIAL_TEST_EMAILS)");
+  const outcome = tester
+    ? await grantTestTrial(supabase, { identity: person.identity, secret, fingerprint })
+    : await claimTrial(
+        supabase,
+        { emailHash: hashEmailIdentity(person.identity, secret), browserIds, fingerprint, marketingEmail },
+        async () => (await trialGrantLimiter.check(client)).allowed,
+      );
 
   if (outcome.status === "error") return respond({ status: "error", message: "We couldn't check that right now. Please try again." }, 500);
   if (outcome.status === "not_eligible") return respond({ status: "not_eligible", message: NOT_ELIGIBLE_MESSAGE }, 409);

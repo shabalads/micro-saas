@@ -3,74 +3,19 @@
 import Papa from "papaparse";
 import type { RawSupplierRow } from "../types/csv";
 import { weightUnitInHeader } from "./catalog-fields";
+import { ATTRIBUTE_HEADERS, CODE_LIKE_SKU_HEADERS, type ColumnKey, HEADER_ALIASES } from "./header-aliases";
+import { compactKey, matchHeaders } from "./header-match";
+import { spreadsheetRow } from "./row-numbers";
 import { type DecodedText, ENCODING_LABELS, type SupplierEncoding, decodeText } from "./text-encoding";
 
 /* -------------------------------------------------------------------------- */
 /*  Header mapping                                                             */
 /* -------------------------------------------------------------------------- */
 
-type ColumnKey = Exclude<keyof RawSupplierRow, "options" | "weightUnit">;
+const COLUMN_KEYS = Object.keys(HEADER_ALIASES) as ColumnKey[];
 
 /** With `header: true` PapaParse returns objects; rows wider than the header keep the overflow here. */
 type ParsedRecord = Record<string, string> & { __parsed_extra?: string[] };
-
-/**
- * Header names suppliers commonly use, compared after lower-casing, removing accents and removing punctuation
- * ("Název produktu" and "nazev_produktu" are both "nazevproduktu"). English first, then Czech, Slovak, Polish, German,
- * French and Spanish. When a file has several columns that fit, the one listed first here wins, not the one that
- * comes first in the file.
- */
-const HEADER_ALIASES: Record<ColumnKey, string[]> = {
-  id: ["id", "productid", "itemid", "supplierid", "supplierproductid", "externalid", "ref", "reference"],
-  title: [
-    "title", "name", "productname", "producttitle", "itemname", "itemtitle", "product",
-    "nazev", "nazevproduktu", "nazevzbozi", "produkt", "nazov", "nazovproduktu", "nazwa", "nazwaproduktu", "bezeichnung", "produktname", "artikelname", "nom", "nomduproduit", "nombre", "nombredelproducto",
-  ],
-  description: [
-    "description", "desc", "body", "bodyhtml", "longdescription", "productdescription", "details", "html",
-    "popis", "popisproduktu", "dlouhypopis", "opis", "opisproduktu", "beschreibung", "produktbeschreibung", "descripcion", "descriptif",
-  ],
-  images: [
-    "images", "image", "imageurl", "imageurls", "imagesrc", "imagelinks", "photos", "photo", "pictures", "picture", "img", "imgurl", "gallery",
-    "obrazek", "obrazky", "urlobrazku", "foto", "fotka", "fotografie", "obrazok", "zdjecie", "zdjecia", "obraz", "bild", "bilder", "bildurl", "imagen", "imagenes",
-  ],
-  price: [
-    "price", "retailprice", "unitprice", "sellingprice", "saleprice", "variantprice", "msrp", "rrp",
-    "cena", "prodejnicena", "cenaprodejni", "cenasdph", "preis", "verkaufspreis", "precio", "prix",
-  ],
-  // The first alias that matches wins, so a file with both "SKU" and "Product code" gets its SKU from "SKU".
-  sku: [
-    "sku", "variantsku", "itemcode", "partnumber", "partno", "articlenumber", "article", "code",
-    "katalogovecislo", "cislozbozi", "objednacicislo", "artikelnummer", "artnr",
-    "productcode", "kodproduktu", "kod", "kodzbozi",
-  ],
-  handle: ["handle", "slug", "urlhandle", "urlkey"],
-  productCode: ["parentsku", "parentcode", "parentid", "parent", "skuparent", "groupid", "groupcode", "productgroup", "itemgroupid", "itemgroup", "modelcode", "model", "styleid", "stylecode", "variantgroup", "kodskupiny"],
-  vendor: [
-    "vendor", "brand", "manufacturer", "supplier", "vendorname", "brandname",
-    "vyrobce", "znacka", "dodavatel", "vyrobca", "producent", "marka", "hersteller", "marke", "fabricant", "marca", "fabricante",
-  ],
-  category: [
-    "category", "categories", "producttype", "type", "productcategory",
-    "kategorie", "kategoria", "typproduktu", "typ", "categoria", "categorie",
-  ],
-  tags: ["tags", "tag", "keywords", "stitky", "stitek", "klicovaslova", "tagi", "schlagworter", "etiquetas", "etiquettes"],
-  stock: [
-    "stock", "quantity", "qty", "inventory", "inventoryqty", "variantinventoryqty", "stockqty", "onhand", "instock", "available",
-    "skladem", "sklad", "zasoba", "zasoby", "pocetks", "mnozstvi", "skladom", "stanmagazynowy", "stan", "ilosc", "bestand", "lagerbestand", "menge", "existencias", "inventario",
-  ],
-  barcode: ["ean", "ean13", "gtin", "gtin13", "upc", "barcode", "variantbarcode", "carovykod", "kodkreskowy", "strichcode", "codigodebarras", "codebarre"],
-  currency: ["currency", "currencycode", "curr", "mena", "waluta", "wahrung", "waehrung", "devise", "moneda", "valuta"],
-  weight: [
-    "weight", "weightg", "weightkg", "grams", "variantgrams", "shippingweight",
-    "hmotnost", "hmotnostkg", "hmotnostg", "vaha", "waga", "gewicht", "peso", "poids",
-  ],
-};
-
-/** A column named like this is the product code when the file also has a separate SKU column (otherwise it is the SKU). */
-const CODE_LIKE_SKU_HEADERS = new Set(["productcode", "kodproduktu", "kod", "kodzbozi"]);
-
-const COLUMN_KEYS = Object.keys(HEADER_ALIASES) as ColumnKey[];
 
 /* -------------------------------------------------------------------------- */
 /*  Variant option columns                                                     */
@@ -85,15 +30,7 @@ const optionValueAliases = (n: number): string[] => [
 ];
 const optionNameAliases = (n: number): string[] => [`option${n}name`, `optionname${n}`, `variantoption${n}name`, `attribute${n}name`, `variation${n}name`];
 
-/**
- * Plain columns whose header IS the option name ("Size", "Colour"). They are only used when the file has no Option1
- * Name / Option1 Value style columns, and only if they really separate the variants of a product (see RawOption.derived).
- */
-const ATTRIBUTE_HEADERS = new Set([
-  "size", "sizes", "color", "colour", "material", "style", "pattern", "finish", "scent", "fragrance", "flavor", "flavour", "capacity", "length", "width",
-  // Czech, Slovak, Polish, German, French, Spanish
-  "velikost", "barva", "styl", "vzor", "vuni", "obsah", "delka", "sirka", "velkost", "farba", "rozmiar", "kolor", "groesse", "grosse", "farbe", "couleur", "taille", "talla", "tamano",
-]);
+const ATTRIBUTE_SET = new Set(ATTRIBUTE_HEADERS);
 
 interface OptionColumn {
   valueField: string;
@@ -121,7 +58,7 @@ function resolveOptionColumns(fields: string[]): { columns: OptionColumn[]; igno
   }
   if (explicit.length > 0) return { columns: explicit, ignored: [] };
 
-  const attributes = fields.filter((_, index) => ATTRIBUTE_HEADERS.has(normalized[index]));
+  const attributes = fields.filter((_, index) => ATTRIBUTE_SET.has(normalized[index]));
   return {
     columns: attributes.slice(0, MAX_OPTIONS).map((field) => ({ valueField: field, nameField: null, fallbackName: capitalizeHeader(field), derived: true })),
     ignored: attributes.slice(MAX_OPTIONS),
@@ -129,32 +66,44 @@ function resolveOptionColumns(fields: string[]): { columns: OptionColumn[]; igno
 }
 const OPTIONAL_WARNING_COLUMNS: ColumnKey[] = ["description", "images", "price", "sku"];
 
+/** What a column is called in a sentence. */
+const COLUMN_LABELS: Record<ColumnKey, string> = {
+  id: "the supplier id", title: "the title", description: "the description", images: "the images", price: "the retail price", cost: "the wholesale price (cost)", sku: "the SKU",
+  handle: "the handle", productCode: "the product code", vendor: "the vendor", category: "the product type", tags: "the tags", stock: "the stock quantity", barcode: "the barcode",
+  currency: "the currency", weight: "the weight",
+};
+
 function normalizeHeader(header: string): string {
-  return header.normalize("NFKD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/[^a-z0-9]/g, "");
+  return compactKey(header);
 }
 
-/** Maps each logical column to the header name the file actually uses (or null when absent). */
-function resolveColumns(fields: string[]): Record<ColumnKey, string | null> {
-  const normalized = fields.map(normalizeHeader);
-  const resolved = {} as Record<ColumnKey, string | null>;
-  const taken = new Set<number>();
+interface ResolvedColumns {
+  columns: Record<ColumnKey, string | null>;
+  /** Headers that were read as a column on a close resemblance only (a misspelling), so the person can be told. */
+  guessed: Array<{ header: string; column: ColumnKey; similarity: number }>;
+}
+
+/** Maps each logical column to the header name the file actually uses (or null when absent). See header-match.ts. */
+function resolveColumns(fields: string[]): ResolvedColumns {
+  const matches = matchHeaders(fields, HEADER_ALIASES, COLUMN_KEYS);
+  const columns = {} as Record<ColumnKey, string | null>;
+  const guessed: ResolvedColumns["guessed"] = [];
   for (const key of COLUMN_KEYS) {
-    let index = -1;
-    for (const alias of HEADER_ALIASES[key]) {
-      index = normalized.findIndex((header, position) => header === alias && !taken.has(position));
-      if (index !== -1) break;
-    }
-    if (index !== -1) taken.add(index);
-    resolved[key] = index === -1 ? null : fields[index];
+    const match = matches.get(key);
+    columns[key] = match?.header ?? null;
+    if (match?.how === "similar") guessed.push({ header: match.header, column: key, similarity: match.similarity ?? 0 });
   }
   // "Product code" next to a real SKU column names the product (it groups variants); on its own it is the SKU.
-  if (resolved.productCode === null && resolved.sku !== null) {
-    const skuIndex = fields.indexOf(resolved.sku);
-    const codeIndex = normalized.findIndex((header, position) => CODE_LIKE_SKU_HEADERS.has(header) && position !== skuIndex && !taken.has(position));
-    if (codeIndex !== -1 && !CODE_LIKE_SKU_HEADERS.has(normalized[skuIndex])) resolved.productCode = fields[codeIndex];
+  if (columns.productCode === null && columns.sku !== null) {
+    const normalized = fields.map(normalizeHeader);
+    const skuIndex = fields.indexOf(columns.sku);
+    const codeIndex = normalized.findIndex((header, position) => position !== skuIndex && CODE_LIKE_SET.has(header) && !Object.values(columns).includes(fields[position]));
+    if (codeIndex !== -1 && !CODE_LIKE_SET.has(normalized[skuIndex])) columns.productCode = fields[codeIndex];
   }
-  return resolved;
+  return { columns, guessed };
 }
+
+const CODE_LIKE_SET = new Set(CODE_LIKE_SKU_HEADERS.map(compactKey));
 
 /* -------------------------------------------------------------------------- */
 /*  PapaParse result -> supplier rows                                          */
@@ -176,7 +125,7 @@ export function mapParsedRows(
   const fields = (results.meta.fields ?? []).filter((field) => field !== "");
   if (fields.length === 0) throw new Error("This file is empty.");
 
-  const columns = resolveColumns(fields);
+  const { columns, guessed } = resolveColumns(fields);
   const optionColumns = resolveOptionColumns(fields);
   const weightUnit = columns.weight === null ? "" : weightUnitInHeader(columns.weight);
   if (columns.title === null) {
@@ -184,9 +133,16 @@ export function mapParsedRows(
       `No product title column found. Expected a header like "title" or "name", but the file has: ${fields.slice(0, 8).join(", ")}.`,
     );
   }
-  if (results.data.length === 0) throw new Error("The file has a header row but no product rows.");
+  // Rows with nothing in them are not products, but they still count for the row numbers the warnings give: the header is
+  // row 1, so the fifth record under it is row 6 in the supplier's spreadsheet, blank lines and all.
+  const isBlank = (record: ParsedRecord) => fields.every((field) => (record[field] ?? "").trim() === "") && !record.__parsed_extra?.some((cell) => cell.trim() !== "");
+  const numbered = results.data.map((record, index) => ({ record, number: spreadsheetRow(index) })).filter(({ record }) => !isBlank(record));
+  if (numbered.length === 0) throw new Error("The file has a header row but no product rows.");
 
   const warnings: string[] = [...pipelineWarnings];
+  for (const guess of guessed) {
+    warnings.push(`The column "${guess.header}" was read as ${COLUMN_LABELS[guess.column]}, because it looks like a misspelling of it. If that is wrong, rename the column.`);
+  }
   const missing = OPTIONAL_WARNING_COLUMNS.filter((key) => columns[key] === null);
   if (missing.length > 0) {
     warnings.push(`No "${missing.join('", "')}" column detected, so those fields will be empty.`);
@@ -199,7 +155,7 @@ export function mapParsedRows(
   }
 
   let overflowRows = 0;
-  const rows: RawSupplierRow[] = results.data.map((record) => {
+  const rows: RawSupplierRow[] = numbered.map(({ record, number }) => {
     if (record.__parsed_extra?.some((cell) => cell.trim() !== "")) overflowRows++;
 
     const cell = (key: ColumnKey): string => {
@@ -214,8 +170,13 @@ export function mapParsedRows(
       images: cell("images"),
       price: cell("price"),
       sku: cell("sku"),
+      sourceRow: number,
     };
+    // The first cell with anything in it, in the file's own column order: a "TOTAL" line is recognised by it.
+    const first = fields.map((field) => (record[field] ?? "").trim()).find((value) => value !== "");
+    if (first !== undefined) row.firstCell = first;
     if (columns.handle !== null) row.handle = cell("handle");
+    if (columns.cost !== null) row.cost = cell("cost");
     if (columns.productCode !== null) row.productCode = cell("productCode");
     if (columns.vendor !== null) row.vendor = cell("vendor");
     if (columns.category !== null) row.category = cell("category");
@@ -269,8 +230,8 @@ export function decodeSupplierBytes(input: ArrayBuffer | ArrayBufferView, forced
 
 const PAPA_OPTIONS: Papa.ParseConfig<ParsedRecord> = {
   header: true,
-  // "greedy" also drops lines that only contain whitespace or bare delimiters.
-  skipEmptyLines: "greedy",
+  // Blank lines are kept here and dropped in mapParsedRows, which knows to count them: a row's number is where it sits in the file.
+  skipEmptyLines: false,
   transformHeader: (header) => header.trim(),
   // Papa would also guess "|", which is the image separator inside cells, not a column separator.
   delimitersToGuess: [",", ";", "\t"],
@@ -281,9 +242,9 @@ const MAX_QUOTE_REPAIRS = 5;
 
 interface QuoteRepairOutcome {
   results: Papa.ParseResult<ParsedRecord>;
-  /** 1-based data rows whose unclosed opening quote was dropped. */
+  /** Spreadsheet rows (the header is row 1) whose unclosed opening quote was dropped. */
   repairedRows: number[];
-  /** True when an unterminated quote is still in the data after the repair budget ran out. */
+  /** The spreadsheet row of an unterminated quote that is still in the data after the repair budget ran out. */
   unrepairedRow: number | null;
 }
 
@@ -301,12 +262,14 @@ function parseWithQuoteRepair(text: string): QuoteRepairOutcome {
     const broken = results.errors.find((error) => error.code === "MissingQuotes");
     if (!broken) return { results, repairedRows, unrepairedRow: null };
 
+    // Papa numbers the records with the header as 0, which makes its row the spreadsheet row minus one.
+    const row = (broken.row ?? 0) + 1;
     // Papa reports the cursor just after the opening quote.
     const at = [(broken.index ?? 0) - 1, broken.index ?? 0].find((position) => current.charAt(position) === '"');
     if (at === undefined || repairedRows.length >= MAX_QUOTE_REPAIRS) {
-      return { results, repairedRows, unrepairedRow: broken.row ?? null };
+      return { results, repairedRows, unrepairedRow: row };
     }
-    repairedRows.push(broken.row ?? 0);
+    repairedRows.push(row); // always: the loop ends because this list reaches MAX_QUOTE_REPAIRS
     current = current.slice(0, at) + current.slice(at + 1);
   }
 }

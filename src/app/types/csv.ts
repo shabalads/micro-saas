@@ -37,6 +37,16 @@ export interface RawSupplierRow {
   weight?: string;
   /** The unit the weight column's header names ("kg" for "Weight (kg)"), or "" when it names none. */
   weightUnit?: string;
+  /** What the shop pays for the item (a wholesale, trade or cost column). It becomes Cost per item, never Variant Price. */
+  cost?: string;
+  /** The first cell of the row that has anything in it, as supplied: a "TOTAL" line is recognised by it. */
+  firstCell?: string;
+  /**
+   * The row's number as the supplier's spreadsheet shows it: the header is row 1, the first product row is row 2, blank rows
+   * count, and a record with line breaks inside quotes is one row. Warnings use it. Absent: the row's position in the list,
+   * counted the same way (the first row of the list is row 2).
+   */
+  sourceRow?: number;
 }
 
 /** One variant option of a supplier row: "Size" = "M". */
@@ -89,6 +99,8 @@ export interface CleanedShopifyRow {
   Variant_Inventory_Tracker: string;
   Variant_Inventory_Qty: string;
   Variant_Barcode: string;
+  /** What the shop pays per item (wholesale price). */
+  Cost_Per_Item: string;
   /** 1, 2, 3 ... in the order the product's images are written, next to Image_Src. */
   Image_Position: string;
 }
@@ -111,6 +123,12 @@ export interface SanitizeOptions {
   status: "draft" | "active";
   /** The casing of Title and Vendor. */
   casing: TitleCasing;
+  /** Rows that are the same as an earlier row in every cell (after trimming) are dropped. */
+  removeDuplicates: boolean;
+  /** For a variant without a retail price: leave Variant Price empty, or compute it from the wholesale price. */
+  noRetailPrice: "empty" | "markup";
+  /** The markup added to the wholesale price when noRetailPrice is "markup": 100 doubles it. */
+  markupPercent: number;
 }
 
 /** One SKU that was rewritten because "Make SKUs unique per variant" is on. */
@@ -129,7 +147,16 @@ export type WarningKind =
   | "duplicate_variant"
   | "missing_option_value"
   | "option_name_conflict"
+  | "option_values_merged"
+  | "possible_duplicate_values"
+  | "missing_price"
+  | "price_from_cost"
+  | "approximate_stock"
+  | "summary_rows"
+  | "untitled_row"
+  | "duplicate_row"
   | "split_product"
+  | "variants_apart"
   | "sku_copied"
   | "invalid_ean"
   | "ean_check_digit"
@@ -189,6 +216,8 @@ export interface SanitizeReport {
   options: SanitizeOptions;
   /** Image URLs that repeated an earlier image of the same product and were written once. */
   duplicateImagesRemoved: number;
+  /** Rows left out because they were the same as an earlier row, a summary line, or had no title. */
+  rowsDropped: number;
   /** Wall-clock time the sanitizer needed, in milliseconds. */
   processingMs: number;
 }

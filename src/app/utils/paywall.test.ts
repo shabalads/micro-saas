@@ -124,7 +124,7 @@ describe("the paid export gate (unlock-client + the lazily imported module)", ()
       ["1.00", "W-1-L", "", "L", ""],
       ["1.00", "W-1-XL", "", "XL", ""],
     ]);
-    expect(result.report.options).toEqual({ uniqueSkus: true, status: "active", casing: "title" });
+    expect(result.report.options).toEqual({ uniqueSkus: true, status: "active", casing: "title", removeDuplicates: true, noRetailPrice: "empty", markupPercent: 100 });
     expect(result.report.skuChanges).toHaveLength(4);
     expect(result.report.warnings.map((warning) => warning.kind)).toEqual(["duplicate_sku_in_product", "sku_changed", "currency_symbol_in_price"]);
   });

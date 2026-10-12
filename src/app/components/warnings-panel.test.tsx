@@ -6,6 +6,8 @@ import ExportOptions from "./export-options";
 import WarningsPanel from "./warnings-panel";
 
 const row = (overrides: Partial<RawSupplierRow>): RawSupplierRow => ({ id: "", title: "", description: "", images: "", price: "", sku: "", ...overrides });
+/** Every option at its default; a test changes what it is about. */
+const BASE = { uniqueSkus: false, status: "draft", casing: "title", removeDuplicates: true, noRetailPrice: "empty", markupPercent: 100 } as const;
 const text = (markup: string) => markup.replace(/<[^>]+>/g, " ").replace(/&gt;/g, ">").replace(/&lt;/g, "<").replace(/&amp;/g, "&").replace(/&quot;/g, '"').replace(/&#x27;/g, "'").replace(/\s+/g, " ");
 /** Whether the rendered checkbox with this id is ticked (React writes checked="" after the class attribute). */
 const ticked = (markup: string, id: string) => new RegExp(`<input id="${id}"[^>]*checked=""`).test(markup);
@@ -30,18 +32,23 @@ describe("the warnings panel", () => {
     const entry = text(stock.slice(0, stock.indexOf("</li>")));
     expect(entry).toContain("Stock without a number");
     expect(entry).toContain("Stock without a number 25"); // the count is the full count
-    expect(entry).toContain("Rows 1, 2, 3, 4, 5, 6, 7, 8, 9, 10 and 15 more");
-    expect(entry).not.toContain("10, 11");
+    expect(entry).toContain("Rows 2, 3, 4, 5, 6, 7, 8, 9, 10, 11 and 15 more"); // the first record is row 2: the header is row 1
+    expect(entry).not.toContain("11, 12");
   });
 
   it("a single row is 'Row 5', not 'Rows 5'", () => {
     const single = sanitizeDataset([row({ title: "A" }), row({ title: "B", description: "n/a" })]).report;
-    expect(text(renderToStaticMarkup(<WarningsPanel report={single} scope="x" />))).toContain("Row 2");
+    expect(text(renderToStaticMarkup(<WarningsPanel report={single} scope="x" />))).toContain("Row 3"); // the second record, under the header
+  });
+
+  it("says the row numbers are the spreadsheet's: the header is row 1", () => {
+    expect(text(markup)).toContain("Row numbers match your spreadsheet (header = row 1).");
+    expect(text(markup)).not.toContain("below the header row");
   });
 
   it("offers what is in the listed rows (the SKU that changed, the value that was not a barcode)", () => {
     expect(markup).toContain("<details");
-    expect(text(markup)).toContain('row 1: "123"');
+    expect(text(markup)).toContain('row 2: "123"');
   });
 
   it("says when the cleaner already fixed something, and when there is nothing to flag", () => {
@@ -65,13 +72,14 @@ describe("the title casing selector", () => {
     { before: "TERMOHRNEK NEREZ 750ML", after: "Termohrnek nerez 750ml" },
   ];
   const render = (casing: "title" | "sentence" | "keep", given = samples) =>
-    renderToStaticMarkup(<ExportOptions options={{ uniqueSkus: false, status: "draft", casing }} skusShared={false} samples={given} onChange={() => {}} />);
+    renderToStaticMarkup(<ExportOptions options={{ ...BASE, casing }} skusShared={false} samples={given} onChange={() => {}} />);
 
   it("offers Title Case, Sentence case and Keep as supplied, with the current choice selected", () => {
     const markup = render("sentence");
     expect(text(markup)).toContain("Title casing");
     expect(markup).toContain('<select id="option-casing"');
-    expect([...markup.matchAll(/<option value="([a-z]+)"( selected="")?>([^<]+)<\/option>/g)].map((match) => [match[1], match[3], Boolean(match[2])])).toEqual([
+    const casings = markup.slice(markup.indexOf('id="option-casing"'));
+    expect([...casings.matchAll(/<option value="([a-z]+)"( selected="")?>([^<]+)<\/option>/g)].map((match) => [match[1], match[3], Boolean(match[2])])).toEqual([
       ["title", "Title Case", false],
       ["sentence", "Sentence case", true],
       ["keep", "Keep as supplied", false],
@@ -107,7 +115,7 @@ describe("the title casing selector", () => {
 
 describe("the export options", () => {
   it("shows both switches with their current state, and says why unique SKUs started on", () => {
-    const markup = renderToStaticMarkup(<ExportOptions options={{ uniqueSkus: true, status: "draft", casing: "title" }} skusShared samples={[]} onChange={() => {}} />);
+    const markup = renderToStaticMarkup(<ExportOptions options={{ ...BASE, uniqueSkus: true }} skusShared samples={[]} onChange={() => {}} />);
     expect(ticked(markup, "option-unique-skus")).toBe(true);
     expect(ticked(markup, "option-active")).toBe(false);
     expect(text(markup)).toContain("Make SKUs unique per variant");
@@ -116,9 +124,40 @@ describe("the export options", () => {
   });
 
   it("'Import as active' is ticked for active products", () => {
-    const markup = renderToStaticMarkup(<ExportOptions options={{ uniqueSkus: false, status: "active", casing: "title" }} skusShared={false} samples={[]} onChange={() => {}} />);
+    const markup = renderToStaticMarkup(<ExportOptions options={{ ...BASE, status: "active" }} skusShared={false} samples={[]} onChange={() => {}} />);
     expect(ticked(markup, "option-active")).toBe(true);
     expect(ticked(markup, "option-unique-skus")).toBe(false);
     expect(text(markup)).toContain("Your variants already have different SKUs");
+  });
+});
+
+describe("the duplicate and price options", () => {
+  const render = (overrides: Partial<typeof BASE> | Record<string, unknown> = {}) =>
+    renderToStaticMarkup(<ExportOptions options={{ ...BASE, ...overrides } as never} skusShared={false} samples={[]} onChange={() => {}} />);
+
+  it("'Remove exact duplicates' is on by default and can be off", () => {
+    expect(text(render())).toContain("Remove exact duplicates");
+    expect(ticked(render(), "option-remove-duplicates")).toBe(true);
+    expect(ticked(render({ removeDuplicates: false }), "option-remove-duplicates")).toBe(false);
+  });
+
+  it("offers 'leave the price empty' (the default) and 'use wholesale price x markup', and shows the markup only for the second", () => {
+    const empty = render();
+    expect([...empty.matchAll(/<option value="([a-z]+)"( selected="")?>([^<]+)<\/option>/g)].filter((match) => match[1] === "empty" || match[1] === "markup").map((match) => [match[1], match[3], Boolean(match[2])])).toEqual([
+      ["empty", "Leave the price empty", true],
+      ["markup", "Use wholesale price x markup", false],
+    ]);
+    expect(text(empty)).toContain("For rows without a retail price");
+    expect(empty).not.toContain('id="option-markup"');
+
+    const markup = render({ noRetailPrice: "markup" });
+    expect(markup).toMatch(/<input id="option-markup" type="number"[^>]*value="100"/);
+    expect(text(markup)).toContain("plus 100% (100% doubles it)");
+    expect(render({ noRetailPrice: "markup", markupPercent: 35 })).toMatch(/id="option-markup"[^>]*value="35"/);
+  });
+
+  it("says where the wholesale price goes whichever is chosen", () => {
+    expect(text(render())).toContain("Cost per item, never to Variant Price");
+    expect(text(render({ noRetailPrice: "markup" }))).toContain("always written to Cost per item");
   });
 });

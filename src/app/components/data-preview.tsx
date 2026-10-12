@@ -9,6 +9,7 @@ import type {
   RawSupplierRow,
   SanitizeReport,
 } from "../types/csv";
+import { FIRST_DATA_ROW } from "../utils/row-numbers";
 import { buildPreviewPairs, shopifyHeaderOf } from "../utils/sanitizer";
 
 /* -------------------------------------------------------------------------- */
@@ -46,7 +47,7 @@ function shopifyHeader(key: keyof CleanedShopifyRow): string {
 
 /** The catalog columns of a supplier row (vendor, category, stock, EAN) as one line, "name: value", only for the columns the file has. */
 function catalogOf(raw: RawSupplierRow): string[] {
-  const entries: Array<[string, string | undefined]> = [["vendor", raw.vendor], ["category", raw.category], ["stock", raw.stock], ["ean", raw.barcode]];
+  const entries: Array<[string, string | undefined]> = [["vendor", raw.vendor], ["category", raw.category], ["stock", raw.stock], ["cost", raw.cost], ["ean", raw.barcode]];
   return entries.filter(([, value]) => value !== undefined).map(([name, value]) => `${name}: ${(value as string) === "" ? "(empty)" : value}`);
 }
 
@@ -56,6 +57,7 @@ function catalogWritten(row: CleanedShopifyRow): string[] {
     [shopifyHeader("Vendor"), row.Vendor],
     [shopifyHeader("Type"), row.Type],
     [shopifyHeader("Variant_Inventory_Qty"), row.Variant_Inventory_Qty],
+    [shopifyHeader("Cost_Per_Item"), row.Cost_Per_Item],
     [shopifyHeader("Variant_Barcode"), row.Variant_Barcode],
   ];
   return entries.filter(([, value]) => value !== "").map(([name, value]) => `${name}: ${value}`);
@@ -287,6 +289,7 @@ function MetricCard({ metric }: { metric: Metric }) {
 
 function ProductComparison({ pair, position, total }: { pair: PreviewPair; position: number; total: number }) {
   const { raw, primary, extraImageRows } = pair;
+  const sheetRow = raw.sourceRow ?? position + FIRST_DATA_ROW;
   const imageUrls = [primary.Image_Src, ...extraImageRows.map((row) => row.Image_Src)].filter(Boolean);
   const shopifyRowCount = 1 + extraImageRows.length;
   const handleChanged = raw.handle === undefined || raw.handle !== primary.Handle;
@@ -298,7 +301,8 @@ function ProductComparison({ pair, position, total }: { pair: PreviewPair; posit
     >
       <header className="mb-3 flex flex-wrap items-center justify-between gap-2 px-1">
         <p className="text-sm font-medium text-neutral-200">
-          Row {position + 1} <span className="text-neutral-500">of {total.toLocaleString()}</span>
+          <span title={`Row ${sheetRow} of your spreadsheet (the header is row 1), the same number the warnings use`}>Row {sheetRow}</span>{" "}
+          <span className="text-neutral-500">· {(position + 1).toLocaleString()} of {total.toLocaleString()}</span>
           {pair.isVariantRow && (
             <span className="ml-2 rounded-full border border-indigo-400/30 bg-indigo-500/10 px-2 py-0.5 text-xs font-medium text-indigo-200" title="This row repeats an earlier handle, so it is a further variant of that product">
               variant of {primary.Handle}
@@ -400,12 +404,12 @@ function ProductComparison({ pair, position, total }: { pair: PreviewPair; posit
           <FieldRow
             changed={catalogOf(raw).join(" | ") !== catalogWritten(primary).join(" | ")}
             before={{
-              label: "vendor / category / stock / ean",
+              label: "vendor / category / stock / cost / ean",
               note: "as supplied",
               content: <VisibleWhitespace value={catalogOf(raw).join(" | ")} />,
             }}
             after={{
-              label: "Vendor / Type / Inventory Qty / Barcode",
+              label: "Vendor / Type / Inventory Qty / Cost per item / Barcode",
               note: pair.isVariantRow ? "this variant" : "kept",
               content: catalogWritten(primary).length > 0 ? <PlainMono value={catalogWritten(primary).join(" | ")} /> : <span className="italic text-neutral-500">nothing usable (see the warnings)</span>,
             }}

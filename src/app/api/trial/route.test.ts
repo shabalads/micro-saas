@@ -312,3 +312,98 @@ describe("POST /api/trial", () => {
     });
   });
 });
+
+describe("POST /api/trial in test mode (TRIAL_TEST_EMAILS)", () => {
+  beforeEach(() => {
+    vi.stubEnv("TRIAL_HASH_SECRET", "h".repeat(40));
+    vi.stubEnv("UNLOCK_TOKEN_SECRET", "unit-test-unlock-secret-unit-test-unlock-secret");
+    vi.stubEnv("TRIAL_TEST_EMAILS", "jane@example.com");
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    fake = createFakeSupabase({}, { unique: { free_trials: ["email_hash", "browser_id"] }, autoId: ["free_trials"] });
+  });
+  afterEach(() => {
+    vi.unstubAllEnvs();
+    vi.restoreAllMocks();
+  });
+
+  it("a listed address gets a free file again and again: the same file, another file, the same browser", async () => {
+    const answers = [await claim(), await claim(), await claim({ fingerprint: FP_B }), await claim({ fingerprint: FP_B, browserId: BROWSER_2 })];
+    expect(answers.map((response) => response.status)).toEqual([200, 200, 200, 200]);
+    const bodies = await Promise.all(answers.map((response) => response.clone().json()));
+    for (const body of bodies) expect(body).toMatchObject({ status: "granted", created: true });
+    expect(new Set(bodies.map((body) => body.grant.sessionId)).size).toBe(4);
+    expect(fake.tables.free_trials).toHaveLength(4);
+  });
+
+  it("each file's token is a real unlock token for THAT file, and an earlier one keeps working", async () => {
+    const first = await (await claim({ fingerprint: FP_A })).json();
+    const second = await (await claim({ fingerprint: FP_B })).json();
+    expect(verifyUnlockToken(first.grant.token)).toMatchObject({ sid: first.grant.sessionId, fp: FP_A });
+    expect(verifyUnlockToken(second.grant.token)).toMatchObject({ sid: second.grant.sessionId, fp: FP_B });
+    expect(first.grant).toMatchObject({ kind: "trial", fingerprint: FP_A });
+  });
+
+  it("works whatever the address looks like: capitals, a +tag", async () => {
+    expect((await claim({ email: "  Jane+shop@Example.com " })).status).toBe(200);
+    expect((await claim({ email: "JANE@example.com", fingerprint: FP_B })).status).toBe(200);
+  });
+
+  it("is not stopped by a real free file already used with that address and browser (the case this exists for)", async () => {
+    vi.stubEnv("TRIAL_TEST_EMAILS", "");
+    expect((await claim()).status).toBe(200);
+    expect((await claim({ fingerprint: FP_B })).status).toBe(409);   // the ordinary rule, as the person met it
+    vi.stubEnv("TRIAL_TEST_EMAILS", "jane@example.com");
+    expect((await claim({ fingerprint: FP_B })).status).toBe(200);
+    expect(fake.tables.free_trials.filter((row) => !String(row.browser_id).startsWith("test-"))).toHaveLength(1);   // the real row is still there, untouched
+  });
+
+  it("sets a 'test-' browser id in the cookie and in the answer, so the browser can renew the file it was given", async () => {
+    const response = await claim();
+    const body = await response.json();
+    expect(body.browserId).toMatch(/^test-/);
+    const cookie = response.headers.getSetCookie().find((entry) => entry.startsWith("csv_trial_browser="));
+    expect(cookie).toContain(`csv_trial_browser=${body.browserId}`);
+
+    const renewed = await renew({ browserId: body.browserId });
+    expect(renewed.status).toBe(200);
+    expect((await renewed.json()).grant.sessionId).toBe(body.grant.sessionId);
+  });
+
+  it("never stores the product-updates address, even when its box is ticked", async () => {
+    await claim({ marketingOptIn: true });
+    expect(fake.tables.free_trials[0]).not.toHaveProperty("marketing_email");
+  });
+
+  it("does not exempt anyone else: another address is held to one free file, in the same browser", async () => {
+    expect((await claim({ email: "other@example.com" })).status).toBe(200);
+    expect((await claim({ email: "other@example.com", fingerprint: FP_B })).status).toBe(409);
+    expect((await claim({ email: "third@example.com", fingerprint: FP_B })).status).toBe(409);
+  });
+
+  it("a file that is already free is still 'not needed', for a tester too", async () => {
+    const response = await claim({ rowCount: FREE_ROW_LIMIT });
+    expect(response.status).toBe(400);
+    expect(await response.json()).toMatchObject({ status: "not_needed" });
+    expect(fake.tables.free_trials ?? []).toHaveLength(0);
+  });
+
+  it('"*" exempts every address (testing from your own computer with any email)', async () => {
+    vi.stubEnv("TRIAL_TEST_EMAILS", "*");
+    expect((await claim({ email: "anyone@example.com" })).status).toBe(200);
+    expect((await claim({ email: "anyone@example.com", fingerprint: FP_B })).status).toBe(200);
+    expect((await claim({ email: "someone-else@example.com", fingerprint: FP_B })).status).toBe(200);
+  });
+
+  it("is OFF in production, whatever is listed: one free file per person, as for everybody", async () => {
+    vi.stubEnv("NODE_ENV", "production");
+    vi.stubEnv("TRIAL_TEST_EMAILS", "jane@example.com,*");
+    expect((await claim()).status).toBe(200);
+    const second = await claim({ fingerprint: FP_B });
+    expect(second.status).toBe(409);
+    expect((await second.json()).message).toMatch(/already been used/);
+    expect(fake.tables.free_trials).toHaveLength(1);
+    expect(String(fake.tables.free_trials[0].browser_id)).not.toMatch(/^test-/);
+  });
+});
+

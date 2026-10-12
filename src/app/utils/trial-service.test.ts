@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { describe, expect, it, vi } from "vitest";
 import { createFakeSupabase } from "../../test/fake-supabase";
-import { claimTrial, findTrialForBrowser, getTrialSecret, hashEmailIdentity, isBrowserId, normalizeEmail, readCookie } from "./trial-service";
+import { TEST_BROWSER_PREFIX, claimTrial, findTrialForBrowser, getTrialSecret, grantTestTrial, hashEmailIdentity, isBrowserId, isTrialTester, normalizeEmail, readCookie } from "./trial-service";
 
 const SECRET = "s".repeat(40);
 const FP_A = "sha256:" + "a".repeat(64);
@@ -156,5 +156,100 @@ describe("findTrialForBrowser", () => {
     expect((await findTrialForBrowser(client, [BROWSER_1], FP_B)).trial).toBeNull();
     expect((await findTrialForBrowser(client, [BROWSER_2], FP_A)).trial).toBeNull();
     expect((await findTrialForBrowser(client, [], FP_A)).trial).toBeNull();
+  });
+});
+
+describe("test mode (TRIAL_TEST_EMAILS): who is exempt from the one-free-file rule", () => {
+  const dev = (list: string | undefined) => ({ TRIAL_TEST_EMAILS: list, NODE_ENV: "development" });
+
+  it("is off unless the setting names someone", () => {
+    for (const list of [undefined, "", "   ", ",,"]) expect(isTrialTester("jane@example.com", dev(list)), String(list)).toBe(false);
+  });
+
+  it("matches the listed person however the address is typed (case, +tag, spaces), and nobody else", () => {
+    const env = dev("pojsl.jirka@email.cz");
+    expect(isTrialTester(normalizeEmail("pojsl.jirka@email.cz")!.identity, env)).toBe(true);
+    expect(isTrialTester(normalizeEmail("  Pojsl.Jirka+shop@Email.cz ")!.identity, env)).toBe(true);
+    expect(isTrialTester(normalizeEmail("someone.else@email.cz")!.identity, env)).toBe(false);
+    expect(isTrialTester(normalizeEmail("pojsl.jirka@other.cz")!.identity, env)).toBe(false);
+  });
+
+  it("takes a list, and a listed entry may itself carry capitals or a +tag", () => {
+    const env = dev(" a@example.com , B+test@Example.com ");
+    expect(isTrialTester("a@example.com", env)).toBe(true);
+    expect(isTrialTester("b@example.com", env)).toBe(true);
+    expect(isTrialTester("c@example.com", env)).toBe(false);
+  });
+
+  it('"*" means anyone (for testing from your own computer with any address)', () => {
+    expect(isTrialTester("whoever@example.com", dev("*"))).toBe(true);
+  });
+
+  it("is IGNORED in production: an email is not verified, so a listed address must not unlock unlimited free files on the live site", () => {
+    const env = { TRIAL_TEST_EMAILS: "jane@example.com,*", NODE_ENV: "production" };
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    expect(isTrialTester("jane@example.com", env)).toBe(false);
+    expect(isTrialTester("anyone@example.com", env)).toBe(false);
+  });
+
+  it("says once, in production, that the setting is being ignored", async () => {
+    const error = vi.spyOn(console, "error").mockImplementation(() => {});
+    vi.resetModules();
+    const fresh = await import("./trial-service");
+    const env = { TRIAL_TEST_EMAILS: "jane@example.com", NODE_ENV: "production" };
+    fresh.isTrialTester("jane@example.com", env);
+    fresh.isTrialTester("jane@example.com", env);
+    expect(error.mock.calls.filter(([message]) => String(message).includes("TRIAL_TEST_EMAILS is set but ignored"))).toHaveLength(1);
+  });
+});
+
+describe("grantTestTrial: a free file that is never refused and never used up", () => {
+  const options = { unique: { free_trials: ["email_hash", "browser_id"] }, autoId: ["free_trials"] };
+  const grant = (supabase: ReturnType<typeof createFakeSupabase>["client"], fingerprint = FP_A) => grantTestTrial(supabase, { identity: "jane@example.com", secret: SECRET, fingerprint });
+
+  it("records a new trial every time, for the same person and the same file too", async () => {
+    const { client, tables } = createFakeSupabase({}, options);
+    const outcomes = [await grant(client), await grant(client), await grant(client, FP_B)];
+    expect(outcomes.map((outcome) => outcome.status)).toEqual(["granted", "granted", "granted"]);
+    expect(tables.free_trials).toHaveLength(3);
+    expect(tables.free_trials.map((row) => row.file_fingerprint)).toEqual([FP_A, FP_A, FP_B]);
+  });
+
+  it("gives each its own random id (marked 'test-', so the rows can be found and purged) that passes for a browser id", async () => {
+    const { client, tables } = createFakeSupabase({}, options);
+    await grant(client);
+    await grant(client);
+    const ids = tables.free_trials.map((row) => String(row.browser_id));
+    expect(new Set(ids).size).toBe(2);
+    for (const id of ids) {
+      expect(id.startsWith(TEST_BROWSER_PREFIX)).toBe(true);
+      expect(isBrowserId(id)).toBe(true);
+    }
+    const hashes = tables.free_trials.map((row) => String(row.email_hash));
+    expect(new Set(hashes).size).toBe(2);
+    for (const hash of hashes) expect(hash).toMatch(/^[0-9a-f]{64}$/);
+  });
+
+  it("does not look at, change or use up the person's real trial, and is not blocked by it", async () => {
+    const real = { id: "real-1", email_hash: hashEmailIdentity("jane@example.com", SECRET), browser_id: BROWSER_1, file_fingerprint: FP_A, created_at: "2026-10-01T00:00:00Z" };
+    const { client, tables } = createFakeSupabase({ free_trials: [real] }, options);
+    const outcome = await grant(client, FP_B);
+    expect(outcome.status).toBe("granted");
+    expect(tables.free_trials).toHaveLength(2);
+    expect(tables.free_trials[0]).toEqual(real);
+    expect((await claimTrial(client, { emailHash: real.email_hash, browserIds: [BROWSER_1], fingerprint: FP_B, marketingEmail: null })).status).toBe("not_eligible"); // the real rule is untouched
+  });
+
+  it("never stores a marketing address", async () => {
+    const { client, tables } = createFakeSupabase({}, options);
+    await grant(client);
+    expect(tables.free_trials[0]).not.toHaveProperty("marketing_email");
+    expect(tables.free_trials[0]).not.toHaveProperty("marketing_opt_in_at");
+  });
+
+  it("reports a database failure instead of pretending", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    const { client } = createFakeSupabase({}, { ...options, failOn: ({ op }) => (op === "insert" ? { code: "XX000", message: "down", details: null, hint: null } : null) });
+    expect((await grant(client)).status).toBe("error");
   });
 });

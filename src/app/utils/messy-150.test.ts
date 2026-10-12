@@ -25,6 +25,10 @@ function expectedPrice(cell: string): string {
   return Number(digits).toFixed(2);
 }
 
+// Two ways of counting rows below. "Row N" in a test title, or an index into the output, is the Nth product row under the header
+// (this file has one output row per source row, so that is how a row is found). Row numbers in WARNINGS are the spreadsheet's:
+// the header is row 1, so the Nth product row is row N + 1.
+
 /** The cleaned file as Shopify would receive it: written to CSV text and parsed back, one record per output row. */
 function shopifyRecords(name: string, options = {}) {
   const { rows: raw } = load(name);
@@ -112,15 +116,15 @@ describe.each(FILES)("$name", ({ name, headers: sourceHeaders, optionNames }) =>
       expect(new Set(records.map((record) => record["Variant SKU"].toLowerCase())).size).toBe(150);
     });
 
-    it("is reported as 'SKU copied from previous product' for rows 25, 39, 43 and 70, saying what became of each", () => {
+    it("is reported as 'SKU copied from previous product' for rows 26, 40, 44 and 71 (the spreadsheet's numbers), saying what became of each", () => {
       const { report } = shopifyRecords(name);
       const warning = report.warnings.find((entry) => entry.kind === "sku_copied");
-      expect(warning).toMatchObject({ severity: "warning", title: "SKU copied from previous product", count: 4, rows: [25, 39, 43, 70] });
+      expect(warning).toMatchObject({ severity: "warning", title: "SKU copied from previous product", count: 4, rows: [26, 40, 44, 71] });
       expect(warning?.details).toEqual([
-        'SKU-1006 is also the code of "Dětská Zimní Bunda" above (row 21); grouped with the 4 rows below it',
-        'SKU-1011 is also the code of "Batoh Na Notebook 15.6" above (row 36); grouped with the 2 rows below it',
-        'SKU-1013 is also the code of "Pokojová Rostlina Kaktus" above (row 42); grouped with the 4 rows below it',
-        'SKU-1024 is also the code of "Cestovní Kufr ABS 65L" above (row 67); kept as its own product',
+        'SKU-1006 is also the code of "Dětská Zimní Bunda" above (row 22); grouped with the 4 rows below it',
+        'SKU-1011 is also the code of "Batoh Na Notebook 15.6" above (row 37); grouped with the 2 rows below it',
+        'SKU-1013 is also the code of "Pokojová Rostlina Kaktus" above (row 43); grouped with the 4 rows below it',
+        'SKU-1024 is also the code of "Cestovní Kufr ABS 65L" above (row 68); kept as its own product',
       ]);
     });
   });
@@ -199,9 +203,9 @@ describe.each(FILES)("$name", ({ name, headers: sourceHeaders, optionNames }) =>
       const { report } = shopifyRecords(name);
       const within = report.warnings.find((warning) => warning.kind === "duplicate_sku_in_product");
       const across = report.warnings.find((warning) => warning.kind === "duplicate_sku_across_products");
-      expect(within).toMatchObject({ count: 90, rows: [3, 4, 5, 6, 8, 9, 10, 11, 12, 13] });
-      expect(across).toMatchObject({ count: 4, rows: [25, 39, 43, 70] });
-      expect(across?.details?.slice(0, 2)).toEqual(["SKU-1006 (first used in row 21)", "SKU-1011 (first used in row 36)"]);
+      expect(within).toMatchObject({ count: 90, rows: [4, 5, 6, 7, 9, 10, 11, 12, 13, 14] });
+      expect(across).toMatchObject({ count: 4, rows: [26, 40, 44, 71] });
+      expect(across?.details?.slice(0, 2)).toEqual(["SKU-1006 (first used in row 22)", "SKU-1011 (first used in row 37)"]);
     });
 
     it("are reported with the switch off too, and then written as supplied", () => {
@@ -221,10 +225,10 @@ describe.each(FILES)("$name", ({ name, headers: sourceHeaders, optionNames }) =>
       expect(report.skuChanges.length).toBeGreaterThan(0);
       for (const change of report.skuChanges) {
         expect(change.to.startsWith(change.from), `${change.from} -> ${change.to}`).toBe(true);
-        expect(records[change.row - 1]["Variant SKU"]).toBe(change.to);
+        expect(records[change.row - 2]["Variant SKU"]).toBe(change.to);
       }
       const listed = report.warnings.find((warning) => warning.kind === "sku_changed");
-      expect(listed).toMatchObject({ count: report.skuChanges.length, rows: [2, 3, 4, 5, 6, 7, 8, 9, 10, 11] });
+      expect(listed).toMatchObject({ count: report.skuChanges.length, rows: [3, 4, 5, 6, 7, 8, 9, 10, 11, 12] });
       expect(listed?.details?.[0]).toBe("SKU-1001 -> SKU-1001-S-CERNA");
     });
   });
@@ -232,7 +236,7 @@ describe.each(FILES)("$name", ({ name, headers: sourceHeaders, optionNames }) =>
   describe("placeholder descriptions", () => {
     it("are reported, and empty in the output (15 rows say 'popis není k dispozici')", () => {
       const { report, records } = shopifyRecords(name);
-      expect(report.warnings.find((warning) => warning.kind === "placeholder_description")).toMatchObject({ count: 15, rows: [25, 26, 27, 28, 29, 48, 72, 73, 84, 85] });
+      expect(report.warnings.find((warning) => warning.kind === "placeholder_description")).toMatchObject({ count: 15, rows: [26, 27, 28, 29, 30, 49, 73, 74, 85, 86] });
       expect(records.some((record) => /dispozici/i.test(record["Body (HTML)"]))).toBe(false);
     });
 
@@ -277,10 +281,10 @@ describe.each(FILES)("$name", ({ name, headers: sourceHeaders, optionNames }) =>
       "placeholder_description",
       "currency_symbol_in_price",
     ]);
-    expect(report.warnings.find((warning) => warning.kind === "non_numeric_stock")).toMatchObject({ count: 47, rows: [2, 3, 13, 15, 18, 22, 24, 25, 27, 28] });
-    expect(report.warnings.find((warning) => warning.kind === "currency_symbol_in_price")).toMatchObject({ count: 59, rows: [12, 14, 15, 16, 20, 22, 26, 27, 29, 30], severity: "info" });
-    expect(report.warnings.find((warning) => warning.kind === "split_product")).toMatchObject({ count: 17, rows: [99, 104, 106, 111, 118, 124, 125, 128, 129, 130] });
-    expect(report.warnings.find((warning) => warning.kind === "ean_check_digit")).toMatchObject({ count: 36, rows: [3, 7, 9, 12, 14, 15, 20, 23, 24, 25] });
+    expect(report.warnings.find((warning) => warning.kind === "non_numeric_stock")).toMatchObject({ count: 47, rows: [3, 4, 14, 16, 19, 23, 25, 26, 28, 29] });
+    expect(report.warnings.find((warning) => warning.kind === "currency_symbol_in_price")).toMatchObject({ count: 59, rows: [13, 15, 16, 17, 21, 23, 27, 28, 30, 31], severity: "info" });
+    expect(report.warnings.find((warning) => warning.kind === "split_product")).toMatchObject({ count: 17, rows: [100, 105, 107, 112, 119, 125, 126, 129, 130, 131] });
+    expect(report.warnings.find((warning) => warning.kind === "ean_check_digit")).toMatchObject({ count: 36, rows: [4, 8, 10, 13, 15, 16, 21, 24, 25, 26] });
     // CZK and Kč are one currency, and all 42 EANs have a valid length (6 of them also the right check digit): neither is a warning
     expect(kinds(report.warnings)).not.toContain("mixed_currencies");
     expect(kinds(report.warnings)).not.toContain("invalid_ean");

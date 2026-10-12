@@ -133,7 +133,7 @@ describe("what the tool cannot fix, it says", () => {
     ]);
     expect(kinds(report)).toEqual(["duplicate_variant"]);
     const [warning] = report.warnings;
-    expect(warning).toMatchObject({ severity: "warning", count: 1, rows: [3], details: ["repeats row 1: M / Red"] });
+    expect(warning).toMatchObject({ severity: "warning", count: 1, rows: [4], details: ["repeats row 2: M / Red"] });
     expect(warning.message).toMatch(/1 variant repeats the option values of another variant/);
     expect(warning.message).toMatch(/Option values are not unique/);
   });
@@ -143,7 +143,7 @@ describe("what the tool cannot fix, it says", () => {
       row({ title: "Tee", handle: "tee", sku: "A" }),
       row({ handle: "tee", sku: "B" }),
     ]);
-    expect(report.warnings.find((warning) => warning.kind === "duplicate_variant")).toMatchObject({ count: 1, rows: [2], details: ["repeats row 1: (no option values)"] });
+    expect(report.warnings.find((warning) => warning.kind === "duplicate_variant")).toMatchObject({ count: 1, rows: [3], details: ["repeats row 2: (no option values)"] });
   });
 
   it("a variant with no value for an option its siblings have", () => {
@@ -153,7 +153,7 @@ describe("what the tool cannot fix, it says", () => {
       row({ handle: "tee", options: [opt("Size", "L")] }),
     ]);
     expect(kinds(report)).toEqual(["missing_option_value"]);
-    expect(report.warnings[0]).toMatchObject({ count: 1, rows: [2], details: ['no value for "Size"'] });
+    expect(report.warnings[0]).toMatchObject({ count: 1, rows: [3], details: ['no value for "Size"'] });
   });
 
   it("names the options on the first row even when that row has no value of its own, so the variants below are not nameless", () => {
@@ -166,15 +166,25 @@ describe("what the tool cannot fix, it says", () => {
     expect(report.warnings.find((warning) => warning.kind === "missing_option_value")?.details).toEqual(['no value for "Size"']);
   });
 
-  it("variant rows that are not next to their product are NOT merged into it: they become their own product, with a warning", () => {
+  it("a variant row (no title of its own) that is not next to its product is written WITH it, and warned about: the alternative is a product with no title", () => {
     const { rows, report } = sanitizeDataset([
       row({ title: "Tee", handle: "tee", options: [opt("Size", "S")] }),
       row({ title: "Hat", handle: "hat", options: [opt("Size", "S")] }),
       row({ handle: "tee", options: [opt("Size", "M")] }),
     ]);
+    expect(rows.map((entry) => [entry.Handle, entry.Title, entry.Option1_Value])).toEqual([["tee", "Tee", "S"], ["tee", "", "M"], ["hat", "Hat", "S"]]);
+    expect(kinds(report)).toEqual(["variants_apart"]);
+    expect(report.warnings[0]).toMatchObject({ count: 1, rows: [4], details: ['joins "Tee" (row 2), which keeps its first position'] });
+  });
+
+  it("but a row WITH a title and the same handle further down is still its own product (-2)", () => {
+    const { rows, report } = sanitizeDataset([
+      row({ title: "Tee", handle: "tee", options: [opt("Size", "S")] }),
+      row({ title: "Hat", handle: "hat", options: [opt("Size", "S")] }),
+      row({ title: "Tee", handle: "tee", options: [opt("Size", "M")] }),
+    ]);
     expect(rows.map((entry) => entry.Handle)).toEqual(["tee", "hat", "tee-2"]);
     expect(kinds(report)).toEqual(["split_product"]);
-    expect(report.warnings[0]).toMatchObject({ count: 1, rows: [3], details: ['handle "tee" again (first in row 1) is now tee-2'] });
   });
 
   it("an option that a later row calls something else: the first row's name wins, and it is mentioned", () => {
@@ -186,7 +196,7 @@ describe("what the tool cannot fix, it says", () => {
     expect(rows[1].Option1_Name).toBe("");
     expect(kinds(report)).toEqual(["option_name_conflict"]);
     expect(report.warnings[0].message).toMatch(/names an option differently/);
-    expect(report.warnings[0]).toMatchObject({ rows: [2], details: ['"Colour" here, "Size" in row 1'] });
+    expect(report.warnings[0]).toMatchObject({ rows: [3], details: ['"Colour" here, "Size" in row 2'] });
   });
 
   it("a clean multi-variant file raises nothing", () => {

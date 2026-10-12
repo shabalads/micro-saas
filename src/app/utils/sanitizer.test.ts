@@ -134,7 +134,7 @@ describe("multi-row variant handles", () => {
     expect(rows.map((r) => [r.Handle, r.Title, r.Variant_SKU])).toEqual([["mug", "Mug", "M1"], ["cup", "Cup", "C1"], ["mug-2", "Mug", "M2"]]);
     expect(report).toMatchObject({ productCount: 3, variantRows: 0, duplicateHandlesResolved: 1 });
     expect(report.warnings.map((warning) => warning.kind)).toEqual(["split_product"]);
-    expect(report.warnings[0]).toMatchObject({ count: 1, rows: [3] });
+    expect(report.warnings[0]).toMatchObject({ count: 1, rows: [4] }); // the third record: row 4, the header being row 1
   });
 
   it("a variant row with a blank title directly under its product still attaches to it", () => {
@@ -168,12 +168,24 @@ describe("handles", () => {
     expect(generateHandle("Čokoláda Hořká & Mléčná")).toBe("cokolada-horka-and-mlecna");
   });
 
-  it("makes handles unique across identical titles and falls back to SKU, id, then position", () => {
+  it("makes handles unique across identical titles", () => {
+    const { rows } = sanitizeDataset([row({ title: "MUG", sku: "1" }), row({ title: "MUG", sku: "2" }), row({ title: "MUG", sku: "3" })]);
+    expect(rows.map((r) => r.Handle)).toEqual(["mug", "mug-2", "mug-3"]);
+  });
+
+  it("falls back to SKU, id, then position when a title has nothing a URL can be made of", () => {
     const { rows } = sanitizeDataset([
-      row({ title: "MUG" }), row({ title: "MUG" }), row({ title: "MUG" }),
-      row({ title: "", sku: "ZX-9" }), row({ title: "", id: "77" }), row({ title: "" }),
+      row({ title: "™", sku: "ZX-9" }), row({ title: "®®", id: "77" }), row({ title: "***" }),
     ]);
-    expect(rows.map((r) => r.Handle)).toEqual(["mug", "mug-2", "mug-3", "zx-9", "77", "product-6"]);
+    expect(rows.map((r) => r.Handle)).toEqual(["zx-9", "77", "product-4"]);
+  });
+
+  it("a row with no title that belongs to no product is left out and said so: no 'Untitled Product', no title made up", () => {
+    const { rows, report } = sanitizeDataset([row({ title: "Mug", sku: "M" }), row({ title: "", sku: "ZX-9", price: "5" }), row({ title: "", id: "77" })]);
+    expect(rows.map((r) => r.Title)).toEqual(["Mug"]);
+    expect(rows.some((r) => /untitled/i.test(r.Title))).toBe(false);
+    expect(report.warnings.find((w) => w.kind === "untitled_row")).toMatchObject({ count: 2, rows: [3, 4], details: ["SKU ZX-9", "no title and no code"] });
+    expect(report.rowsDropped).toBe(2);
   });
 });
 

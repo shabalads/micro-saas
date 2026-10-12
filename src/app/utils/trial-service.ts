@@ -13,7 +13,7 @@
 
 import "server-only";
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { createHmac } from "node:crypto";
+import { createHmac, randomBytes } from "node:crypto";
 import { logSupabaseError } from "./telemetry-db";
 
 export const TRIALS_TABLE = "free_trials";
@@ -45,6 +45,57 @@ export function isTrialConfigured(): boolean {
 
 export function isBrowserId(value: unknown): value is string {
   return typeof value === "string" && BROWSER_ID_RE.test(value);
+}
+
+/* -------------------------------------------------------------------------- */
+/*  Test mode                                                                  */
+/* -------------------------------------------------------------------------- */
+
+/** The browser id of a test-mode trial starts with this, so the rows can be told apart (and purged) in the database. */
+export const TEST_BROWSER_PREFIX = "test-";
+
+let warnedAboutTestModeInProduction = false;
+
+/**
+ * Test mode for whoever builds and tests the site: the people named in TRIAL_TEST_EMAILS (comma separated; "*" means anyone)
+ * can claim a free first big file as often as they like, and earlier trials do not count against them. It works only
+ * outside production, because the email is not verified: in a production build anyone could type a listed address and take
+ * unlimited free files. So in production the setting is ignored (and says so once), and everyone gets the one-per-person rule.
+ */
+export function isTrialTester(identity: string, env: Record<string, string | undefined> = process.env): boolean {
+  const listed = (env.TRIAL_TEST_EMAILS ?? "").split(",").map((entry) => entry.trim().toLowerCase()).filter((entry) => entry !== "");
+  if (listed.length === 0) return false;
+  if (env.NODE_ENV === "production") {
+    if (!warnedAboutTestModeInProduction) {
+      warnedAboutTestModeInProduction = true;
+      console.error("[trial] TRIAL_TEST_EMAILS is set but ignored: test mode only works outside production. Remove it from the production environment.");
+    }
+    return false;
+  }
+  return listed.some((entry) => entry === "*" || normalizeEmail(entry)?.identity === identity);
+}
+
+/**
+ * A free file for a test-mode person (see isTrialTester). Nothing is checked against earlier trials and nothing is used up:
+ * every call records a NEW row with its own random email hash and a random "test-" browser id, so the unique indexes never
+ * refuse it and the tokens of earlier test files stay valid. No marketing address is ever stored for it.
+ */
+export async function grantTestTrial(
+  supabase: SupabaseClient,
+  input: { identity: string; secret: string; fingerprint: string },
+): Promise<ClaimOutcome> {
+  const { data, error } = await supabase
+    .from(TRIALS_TABLE)
+    .insert({
+      email_hash: hashEmailIdentity(`${input.identity}#test:${randomBytes(12).toString("hex")}`, input.secret),
+      browser_id: `${TEST_BROWSER_PREFIX}${randomBytes(18).toString("base64url")}`,
+      file_fingerprint: input.fingerprint,
+    })
+    .select(TRIAL_COLUMNS)
+    .single();
+  if (!error && data) return { status: "granted", trial: data as TrialRow, created: true };
+  logSupabaseError("grantTestTrial insert", error);
+  return { status: "error" };
 }
 
 /** Reads one cookie from the request's Cookie header. */

@@ -62,7 +62,7 @@ export default function WarningsPanel({ report, scope }: { report: SanitizeRepor
           Check before you import
         </h2>
         <p className="mt-1 text-sm text-neutral-400">
-          {scope} Row numbers count the rows of your file below the header row.
+          {scope} Row numbers match your spreadsheet (header = row 1).
         </p>
       </div>
       {warnings.length === 0 ? (

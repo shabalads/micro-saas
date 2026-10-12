@@ -248,17 +248,30 @@ describe("sample titles for the selector", () => {
 });
 
 describe("the options a parked file comes back with (the Stripe round trip)", () => {
-  const defaults = { uniqueSkus: true, status: "draft", casing: "title" } as const;
+  const defaults = { uniqueSkus: true, status: "draft", casing: "title", removeDuplicates: true, noRetailPrice: "empty", markupPercent: 100 } as const;
 
   it("keeps every choice that was made", () => {
-    expect(mergeSanitizeOptions(defaults, { uniqueSkus: false, status: "active", casing: "sentence" })).toEqual({ uniqueSkus: false, status: "active", casing: "sentence" });
-    expect(mergeSanitizeOptions(defaults, { casing: "keep" })).toEqual({ uniqueSkus: true, status: "draft", casing: "keep" });
+    expect(mergeSanitizeOptions(defaults, { uniqueSkus: false, status: "active", casing: "sentence" })).toEqual({ ...defaults, uniqueSkus: false, status: "active", casing: "sentence" });
+    expect(mergeSanitizeOptions(defaults, { casing: "keep" })).toEqual({ ...defaults, casing: "keep" });
+    expect(mergeSanitizeOptions(defaults, { removeDuplicates: false, noRetailPrice: "markup", markupPercent: 40 })).toEqual({ ...defaults, removeDuplicates: false, noRetailPrice: "markup", markupPercent: 40 });
   });
 
-  it("falls back to the defaults for a file parked before the option existed, and ignores anything invalid", () => {
-    expect(mergeSanitizeOptions(defaults, { uniqueSkus: false, status: "active" })).toEqual({ uniqueSkus: false, status: "active", casing: "title" });
+  it("falls back to the defaults for a file parked before an option existed, and ignores anything invalid", () => {
+    expect(mergeSanitizeOptions(defaults, { uniqueSkus: false, status: "active" })).toEqual({ ...defaults, uniqueSkus: false, status: "active" });
     expect(mergeSanitizeOptions(defaults, undefined)).toEqual(defaults);
     expect(mergeSanitizeOptions(defaults, null)).toEqual(defaults);
-    expect(mergeSanitizeOptions(defaults, { casing: "shouting" as never, status: "published" as never, uniqueSkus: "yes" as never })).toEqual(defaults);
+    expect(
+      mergeSanitizeOptions(defaults, {
+        casing: "shouting" as never, status: "published" as never, uniqueSkus: "yes" as never,
+        removeDuplicates: 1 as never, noRetailPrice: "guess" as never, markupPercent: Number.NaN,
+      }),
+    ).toEqual(defaults);
+  });
+
+  it("keeps the markup within sense: never negative, never absurd", () => {
+    expect(mergeSanitizeOptions(defaults, { markupPercent: -5 }).markupPercent).toBe(100);
+    expect(mergeSanitizeOptions(defaults, { markupPercent: 0 }).markupPercent).toBe(0);
+    expect(mergeSanitizeOptions(defaults, { markupPercent: 1e12 }).markupPercent).toBe(10_000);
+    expect(mergeSanitizeOptions(defaults, { markupPercent: Number.POSITIVE_INFINITY }).markupPercent).toBe(100);
   });
 });

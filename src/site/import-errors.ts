@@ -108,8 +108,8 @@ export const IMPORT_ERRORS: ImportErrorGuide[] = [
     ],
     coverage: "helps",
     toolNote:
-      "It finds the title column under its common names, and keeps blank titles only on genuine variant rows. A product whose title is missing everywhere gets the placeholder “Untitled Product”, so Shopify no longer ignores it. Replace those placeholders with real names before you publish, because the tool cannot invent them.",
-    demo: { kind: "rows", rows: [{ title: "", handle: "mystery-item", sku: "X-1" }], field: "title", expect: "Untitled Product" },
+      "It finds the title column under its common names, and keeps a blank title only on a genuine variant row: one that repeats the handle of an earlier product, which is correct. A row with no title that belongs to no product is left out of the cleaned file and listed with its row number under “Rows without a title”, and lines such as TOTAL are removed the same way. It does not export a nameless “Untitled Product”, because you would only have to hunt for it in Shopify later. It cannot invent a name, so fix those rows in your supplier file and run it again.",
+    demo: { kind: "rows", rows: [{ title: "Blue Mug", handle: "mug", sku: "M-1" }, { title: "", handle: "mug", sku: "M-2" }, { title: "", handle: "mystery-item", sku: "X-1" }], field: "sku", expect: "M-2" },
     related: ["ignored-line-handle-already-exists", "choose-column-headings-window", "options-are-not-unique"],
     updated: UPDATED,
   },
